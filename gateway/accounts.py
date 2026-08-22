@@ -57,6 +57,11 @@ class FxRates:
         return self.rates[c]
 
 
+# Live FX (24h disk cache, falls back to FxRates stub). Import-safe everywhere:
+# gateway.fx.FxRates subclasses this one with feed refresh.
+from .fx import FxRates as LiveFxRates  # noqa: E402,F401
+
+
 @dataclass
 class Account:
     id: str
