@@ -1,0 +1,26 @@
+# fly.toml — tryx402 staging
+app = "tryx402"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TRYX402_STORE = "/data/accounts.json"
+
+[mounts]
+  source = "tryx402_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+  [services.http_checks]
+    interval = 30000
+    path = "/"
