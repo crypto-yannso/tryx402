@@ -140,8 +140,11 @@ def test_currency_mismatch_credit():
     store = AccountStore(path="/tmp/gw_fx_test.json")
     # Existing USD account receives an EUR payment: converted EUR -> USD -> (acct) USD
     store.create("acme", currency="USD")
-    with __import__("pytest").raises(ValueError):
+    try:
         store.credit_minor("acme", 2000, "EUR")            # strict: no rates -> reject
+        raise AssertionError("should have raised ValueError")
+    except ValueError:
+        pass
     acct = store.credit_minor("acme", 2000, "EUR", rates=rates)
     # 20.00 EUR = 20/0.92 USD = 21.74 USD -> 2174 minor, ceil-rounded
     assert acct.balance_minor == 2174
