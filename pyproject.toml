@@ -5,12 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tryx402"
 version = "0.1.0"
-description = "tryx402.app — safe, provider-agnostic wrapper over AgentCash / x402: budget caps, idempotency, cost ledger, multi-currency billing, per-account API keys."
+description = "The OpenRouter for agent payments: budget router, idempotency, cost ledger, and multi-currency billing over x402."
 requires-python = ">=3.9"
-dependencies = []          # stdlib only — payment is delegated to the agentcash CLI
+dependencies = []
 
 [project.scripts]
+tryx402 = "tryx402.cli:main"
 gateway = "gateway.cli:main"
+prospect-relay = "prospect_relay.cli:main"
 
 [tool.setuptools]
-packages = ["gateway", "gateway.tests"]
+packages = ["tryx402", "gateway", "prospect_relay"]
