@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from . import catalog
@@ -102,7 +103,8 @@ def main(argv=None):
                                 description="Safe AgentCash gateway — power-tool + multi-currency billing.")
     p.add_argument("--agentcash", default=None,
                    help="override agentcash binary (default: 'agentcash' or 'npx agentcash@latest')")
-    p.add_argument("--store", default="gateway_accounts.json", help="accounts file")
+    p.add_argument("--store", default=None,
+                   help="accounts file (default: $TRYX402_STORE or ~/.tryx402/accounts.json)")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("search")
@@ -132,6 +134,9 @@ def main(argv=None):
     ac.set_defaults(fn=cmd_account)
 
     a = p.parse_args(argv)
+    if getattr(a, "store", None) is None:
+        a.store = os.environ.get("TRYX402_STORE") or os.path.join(
+            os.path.expanduser("~"), ".tryx402", "accounts.json")
     a.fn(a)
 
 
