@@ -112,7 +112,7 @@ def checkout_params(account_id, amount_minor, currency, success_url, cancel_url,
 def run_webhook_server(store_path, signing_secret, port=4242, rates: FxRates | None = None):
     """Minimal stdlib webhook receiver — good for `stripe listen --forward-to`.
 
-    `store_path` lives under ~/.agentcash-gateway/ by default (persistent);
+    `store_path` lives under ~/.tryx402/ by default (persistent);
     processed event ids are persisted alongside it so a restart cannot
     double-credit a replayed delivery.
     """
@@ -159,7 +159,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="gateway.stripe_integration")
     p.add_argument("--serve", action="store_true", help="run the webhook receiver")
     p.add_argument("--store", default=None,
-                   help="accounts JSON (default: ~/.agentcash-gateway/accounts.json)")
+                   help="accounts JSON (default: ~/.tryx402/accounts.json)")
     p.add_argument("--port", type=int, default=4242)
     a = p.parse_args(argv)
     if a.serve:

@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agentcash-gateway"
+name = "tryx402"
 version = "0.1.0"
-description = "Safe, provider-agnostic wrapper over AgentCash / x402: budget caps, idempotency, cost ledger, multi-currency billing. Easy to embed for agents."
+description = "tryx402.app — safe, provider-agnostic wrapper over AgentCash / x402: budget caps, idempotency, cost ledger, multi-currency billing, per-account API keys."
 requires-python = ">=3.9"
 dependencies = []          # stdlib only — payment is delegated to the agentcash CLI
 

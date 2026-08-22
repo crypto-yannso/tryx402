@@ -1,4 +1,4 @@
-"""AgentCash Gateway — a safe, provider-agnostic wrapper over AgentCash / x402.
+"""tryx402 — a safe, provider-agnostic wrapper over AgentCash / x402.
 
 It adds the things AgentCash itself does NOT provide, and that we learned the
 hard way we need in production:
