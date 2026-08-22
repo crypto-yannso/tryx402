@@ -133,6 +133,71 @@ def test_stripe_webhook():
     print("  ok  stripe webhook: HMAC verify + forgery reject + credit on checkout.completed")
 
 
+def test_currency_mismatch_credit():
+    from gateway.accounts import AccountStore, FxRates
+
+    rates = FxRates()
+    store = AccountStore(path="/tmp/gw_fx_test.json")
+    # Existing USD account receives an EUR payment: converted EUR -> USD -> (acct) USD
+    store.create("acme", currency="USD")
+    with __import__("pytest").raises(ValueError):
+        store.credit_minor("acme", 2000, "EUR")            # strict: no rates -> reject
+    acct = store.credit_minor("acme", 2000, "EUR", rates=rates)
+    # 20.00 EUR = 20/0.92 USD = 21.74 USD -> 2174 minor, ceil-rounded
+    assert acct.balance_minor == 2174
+    assert acct.currency == "USD"
+    # New account: created denominated in the PAYMENT's currency
+    acct2 = store.credit_minor("novo", 1500, "JPY", rates=rates)
+    assert acct2.currency == "JPY" and acct2.balance_minor == 1500
+    print("  ok  currency mismatch: strict reject without rates, FX convert with rates, auto-denominate new accounts")
+
+
+def test_webhook_idempotency():
+    from gateway.accounts import AccountStore
+    from gateway.stripe_integration import handle_event
+
+    event = {"id": "evt_123", "type": "checkout.session.completed",
+             "data": {"object": {"metadata": {"account_id": "acme"},
+                                 "amount_total": 1000, "currency": "eur"}}}
+    store = AccountStore(path="/tmp/gw_idem_test.json")
+    seen = set()
+    handle_event(event, store, save=False, seen_ids=seen)
+    handle_event(event, store, save=False, seen_ids=seen)   # replayed delivery
+    assert store.accounts["acme"].balance_minor == 1000     # credited ONCE
+    handle_event(event, store, save=False, seen_ids=None)   # no idempotency -> double
+    assert store.accounts["acme"].balance_minor == 2000
+    print("  ok  webhook idempotency: replay skipped when seen_ids given")
+
+
+def test_billing_loop():
+    """The fiat -> x402 loop: a paid upstream call debits the customer."""
+    out = '{\"ok\":1}\n{\"price\":\"$0.04\",\"payment\":{\"transactionHash\":\"0x1\"}}'
+    runner, calls = make_runner(out)
+    from gateway.accounts import AccountStore, FxRates
+
+    rates = FxRates()
+    store = AccountStore(path="/tmp/gw_bill_test.json")
+    store.create("acme", currency="EUR", margin=0.30)
+    store.fund("acme", 10)                                   # 10.00 EUR = 1000 minor
+
+    from gateway.client import Billing, SafeClient
+    c = SafeClient(runner=runner, billing=Billing(store, rates))
+    c.call("https://x/api/email/work", body={"a": 1}, expected_price=0.04, account="acme")
+    # billed 0.04*0.92*1.3 = 4.784c -> ceil 5 minor
+    assert store.accounts["acme"].balance_minor == 1000 - 5
+    # now drain the account and expect InsufficientBalance on the next paid call
+    store.accounts["acme"].balance_minor = 2
+    try:
+        c.call("https://x/api/email/work", body={"b": 2}, expected_price=0.04,
+               account="acme")
+        assert False, "should have raised InsufficientBalance"
+    except Exception as e:
+        assert type(e).__name__ in ("InsufficientBalance", "AgentCashError")
+        # the upstream call DID happen and was recorded; the failure is surfaced
+    assert calls["n"] == 2
+    print("  ok  billing loop: customer debited at margin per real call, empty balance surfaces error")
+
+
 if __name__ == "__main__":
     test_helpers()
     test_call_and_ledger()
@@ -141,4 +206,7 @@ if __name__ == "__main__":
     test_billing_multicurrency()
     test_facade()
     test_stripe_webhook()
+    test_currency_mismatch_credit()
+    test_webhook_idempotency()
+    test_billing_loop()
     print("\nALL GATEWAY TESTS PASSED")

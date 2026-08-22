@@ -12,14 +12,21 @@ in sight — the local AgentCash CLI settles payment underneath.
 from __future__ import annotations
 
 from . import catalog
-from .client import SafeClient
+from .accounts import AccountStore, FxRates
+from .client import Billing, SafeClient
 
 
 class Gateway:
-    def __init__(self, max_budget_usd=None, binary=None, idempotent=True, **client_kwargs):
+    def __init__(self, max_budget_usd=None, binary=None, idempotent=True,
+                 store_path=None, rates: FxRates | None = None, **client_kwargs):
         self.binary = binary
+        self.rates = rates or FxRates()
+        self.store = AccountStore.load(store_path) if store_path else None
+        billing = (Billing(self.store, self.rates)
+                   if self.store is not None else None)
         self._client = SafeClient(binary=binary, max_budget_usd=max_budget_usd,
-                                  idempotent=idempotent, **client_kwargs)
+                                  idempotent=idempotent, billing=billing,
+                                  **client_kwargs)
 
     def call(self, url, body=None, *, method="POST", price=None,
              max_amount=None, account=None):
@@ -42,6 +49,17 @@ class Gateway:
 
     def spend_by_origin(self) -> dict:
         return self._client.ledger.by_origin()
+
+    def create_account(self, account_id, currency="USD", margin=0.30):
+        if self.store is None:
+            raise RuntimeError("no store: pass store_path to Gateway()")
+        acct = self.store.create(account_id, currency=currency, margin=margin)
+        self.store.save()
+        return acct
+
+    def balance(self, account_id) -> int:
+        assert self.store is not None
+        return self.store.accounts[account_id].balance_minor
 
     @property
     def ledger(self):

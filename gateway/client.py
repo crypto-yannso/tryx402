@@ -26,6 +26,21 @@ class BudgetExceeded(AgentCashError):
     """Raised BEFORE a call that would push cumulative spend past the cap."""
 
 
+class Billing:
+    """Optional per-account billing hook: debits the customer's fiat balance
+    for every paid upstream call, at their currency + margin. This is what
+    makes the gateway a business and not a ledger decoration."""
+
+    def __init__(self, store, rates):
+        self.store = store
+        self.rates = rates
+
+    def bill(self, account_id, data_cost_usd) -> int:
+        charge = self.store.authorize(account_id, data_cost_usd, self.rates)
+        self.store.charge(account_id, charge)
+        return charge
+
+
 def _default_runner(args, timeout):
     proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     return proc.stdout, proc.returncode
@@ -35,7 +50,8 @@ class SafeClient:
     def __init__(self, binary=None,
                  default_max_amount: float = 1.0, default_timeout_ms: int = 150000,
                  max_budget_usd: float | None = None, idempotent: bool = True,
-                 max_retries: int = 0, ledger: Ledger | None = None, runner=None):
+                 max_retries: int = 0, ledger: Ledger | None = None, runner=None,
+                 billing: Billing | None = None):
         if binary:
             self.cmd = binary.split()
         elif shutil.which("agentcash"):
@@ -49,6 +65,7 @@ class SafeClient:
         self.max_retries = max_retries
         self.ledger = ledger or Ledger()
         self.runner = runner or _default_runner
+        self.billing = billing          # None = unbilled (operator mode)
         self._cache = {}
 
     def call(self, url: str, *, method: str = "POST", body: dict | None = None,
@@ -80,6 +97,16 @@ class SafeClient:
         data, paid_price, tx = self._run(args, endpoint, price, timeout_ms)
         self.ledger.record(CostEvent(endpoint, origin, paid_price, paid=True,
                                      tx_hash=tx, account=account))
+        # Bill the customer's fiat balance for the REAL upstream price
+        # (never undercharge: bill on actual paid_price, not expected).
+        if self.billing and account and paid_price > 0:
+            try:
+                self.billing.bill(account, paid_price)
+            except Exception:
+                self.ledger.record(CostEvent(endpoint, origin, 0.0, paid=False,
+                                             tx_hash="billing-failed:" + str(tx),
+                                             account=account))
+                raise
         if self.idempotent:
             self._cache[idem] = data
         return data

@@ -72,6 +72,7 @@ def price_minor(data_cost_usd: float, currency: str, rates: FxRates, margin: flo
 class AccountStore:
     path: str
     accounts: dict = field(default_factory=dict)
+    seen_path: str | None = None   # where processed webhook event ids persist
 
     @classmethod
     def load(cls, path):
@@ -100,14 +101,34 @@ class AccountStore:
         acct.balance_minor += to_minor(amount_major, acct.currency)
         return acct
 
-    def credit_minor(self, account_id, minor, currency=None) -> Account:
+    def credit_minor(self, account_id, minor, currency=None, rates: "FxRates | None" = None) -> Account:
         """Credit raw minor units — used by the Stripe webhook (Stripe amounts are
-        already in the charge currency's minor units)."""
+        already in the charge currency's minor units).
+
+        Currency rules:
+          * no stored account yet  -> the account is CREATED denominated in the
+            payment's currency (a first EUR payment makes an EUR account);
+          * matching currencies    -> straight credit;
+          * mismatch               -> converted USD-side via `rates` (payment ->
+            USD -> account currency), rounding UP so we never undercredit.
+            Pass rates=None to REJECT mismatches instead (strict mode).
+        """
+        cur = (currency or "").upper() or None
         acct = self.accounts.get(account_id)
         if acct is None:
-            acct = Account(id=account_id, currency=(currency or "USD").upper())
+            acct = Account(id=account_id, currency=(cur or "USD"))
             self.accounts[account_id] = acct
-        acct.balance_minor += int(minor)
+        minor = int(minor)
+        if cur and cur != acct.currency.upper():
+            if rates is None:
+                raise ValueError(
+                    f"payment in {cur} but account {account_id} is {acct.currency} "
+                    f"(pass FxRates to enable conversion)")
+            usd_major = minor / minor_factor(cur) / rates.usd_to(cur)
+            target = usd_major * rates.usd_to(acct.currency)
+            import math as _m
+            minor = int(_m.ceil(round(target, 10) * minor_factor(acct.currency)))
+        acct.balance_minor += minor
         return acct
 
     def authorize(self, account_id, data_cost_usd, rates: FxRates) -> int:
