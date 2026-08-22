@@ -50,12 +50,20 @@ class Gateway:
     def spend_by_origin(self) -> dict:
         return self._client.ledger.by_origin()
 
-    def create_account(self, account_id, currency="USD", margin=0.30):
+    def create_account(self, account_id, currency="USD", margin=0.30, issue_key=False):
         if self.store is None:
             raise RuntimeError("no store: pass store_path to Gateway()")
         acct = self.store.create(account_id, currency=currency, margin=margin)
+        key = self.store.issue_api_key(account_id) if issue_key else None
         self.store.save()
-        return acct
+        return (acct, key) if issue_key else acct
+
+    def authenticate(self, api_key: str):
+        """Resolve an API key to its Account — the multi-tenant entry point.
+        Raises PermissionError for unknown keys."""
+        if self.store is None:
+            raise RuntimeError("no store: pass store_path to Gateway()")
+        return self.store.authenticate(api_key)
 
     def balance(self, account_id) -> int:
         assert self.store is not None

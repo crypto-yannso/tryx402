@@ -198,6 +198,24 @@ def test_billing_loop():
     print("  ok  billing loop: customer debited at margin per real call, empty balance surfaces error")
 
 
+def test_api_keys():
+    from gateway.accounts import AccountStore
+
+    store = AccountStore(path="/tmp/gw_keys_test.json")
+    store.create("acme", currency="EUR")
+    key = store.issue_api_key("acme")
+    assert key.startswith("gw_")
+    assert store.accounts["acme"].api_key_hash != key          # only hash stored
+    assert store.authenticate(key).id == "acme"                # round-trip
+    for bad in ("gw_forged", ""):
+        try:
+            store.authenticate(bad)
+            raise AssertionError(f"should have raised PermissionError for {bad!r}")
+        except PermissionError:
+            pass
+    print("  ok  api keys: hashed at rest, round-trip auth, forged/missing rejected")
+
+
 if __name__ == "__main__":
     test_helpers()
     test_call_and_ledger()
@@ -209,4 +227,5 @@ if __name__ == "__main__":
     test_currency_mismatch_credit()
     test_webhook_idempotency()
     test_billing_loop()
+    test_api_keys()
     print("\nALL GATEWAY TESTS PASSED")

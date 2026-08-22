@@ -8,9 +8,12 @@ here is a STUB (`fund`) standing in for the Stripe webhook.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import math
 import os
+import secrets
 from dataclasses import asdict, dataclass, field
 
 # Minor-unit exponent per currency (default 2). Common exceptions:
@@ -60,6 +63,16 @@ class Account:
     currency: str = "USD"
     balance_minor: int = 0
     margin: float = 0.30
+    api_key_hash: str | None = None   # sha256 hex of the API key — never the key itself
+
+
+def _hash_key(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def new_api_key() -> str:
+    """Generate a fresh API key: 'gw_' + 32 urlsafe chars. Shown ONCE."""
+    return "gw_" + secrets.token_urlsafe(24)
 
 
 def price_minor(data_cost_usd: float, currency: str, rates: FxRates, margin: float) -> int:
@@ -144,3 +157,23 @@ class AccountStore:
         acct = self.accounts[account_id]
         acct.balance_minor -= int(minor)
         return acct
+
+    # --- multi-tenant auth (API keys) -----------------------------------------
+
+    def issue_api_key(self, account_id) -> str:
+        """Generate + store (hashed) an API key for the account. The plaintext
+        key is returned ONCE — only its sha256 lives in the store."""
+        acct = self.accounts[account_id]
+        key = new_api_key()
+        acct.api_key_hash = _hash_key(key)
+        return key
+
+    def authenticate(self, api_key: str) -> Account:
+        """Resolve an API key to its Account. Raises PermissionError if unknown."""
+        if not api_key:
+            raise PermissionError("missing API key")
+        h = _hash_key(api_key)
+        for acct in self.accounts.values():
+            if acct.api_key_hash and hmac.compare_digest(acct.api_key_hash, h):
+                return acct
+        raise PermissionError("unknown API key")
