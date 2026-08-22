@@ -12,7 +12,6 @@ dependencies = []
 [project.scripts]
 tryx402 = "tryx402.cli:main"
 gateway = "gateway.cli:main"
-prospect-relay = "prospect_relay.cli:main"
 
 [tool.setuptools]
-packages = ["tryx402", "gateway", "prospect_relay"]
+packages = ["tryx402", "gateway", "server"]
