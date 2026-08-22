@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentcash-gateway"
+version = "0.1.0"
+description = "Safe, provider-agnostic wrapper over AgentCash / x402: budget caps, idempotency, cost ledger, multi-currency billing. Easy to embed for agents."
+requires-python = ">=3.9"
+dependencies = []          # stdlib only — payment is delegated to the agentcash CLI
+
+[project.scripts]
+gateway = "gateway.cli:main"
+
+[tool.setuptools]
+packages = ["gateway", "gateway.tests"]
