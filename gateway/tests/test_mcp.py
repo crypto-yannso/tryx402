@@ -29,14 +29,22 @@ class TestMCPProtocol:
             assert tool in names, f"missing tool: {tool}"
 
     def test_gateway_check_balance_without_key(self):
+        # Since anonymous session auth, check_balance works WITHOUT an API
+        # key: it mints a session and returns the zero balance of that
+        # session's wallet. The old "No API key configured" error only
+        # appears when the hosted service is unreachable.
         import gateway.mcp_server as mcp
 
         req = {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                "params": {"name": "gateway_check_balance", "arguments": {}}}
         resp = mcp._dispatch(req)
-        text = resp["content"][0]["text"]
-        data = json.loads(text)
-        assert data.get("error") == "No API key configured"
+        data = json.loads(resp["content"][0]["text"])
+        if "error" in data:
+            # hosted service unreachable -> legacy error message
+            assert data["error"] == "No API key configured"
+        else:
+            assert data["balance_cents"] >= 0
+            assert "customer_id" in data
 
     def test_gateway_recharge_requires_amount(self):
         import gateway.mcp_server as mcp
