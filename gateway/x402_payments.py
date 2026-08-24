@@ -140,7 +140,8 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
 
     requirements = {
         "scheme": "exact",
-        "network": canonical_network(os.environ.get("TRYX402_NETWORK", "base")),
+        # facilitator /supported lists v1 kinds by legacy name too
+        "network": os.environ.get("TRYX402_NETWORK", "base"),
         "maxAmountRequired": str(price_cents * 10_000),
         "asset": os.environ.get(
             "TRYX402_ASSET", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
