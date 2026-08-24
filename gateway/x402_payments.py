@@ -75,7 +75,7 @@ def verify_with_facilitator(payment_payload: dict,
     """
     body = json.dumps({
         "x402Version": 1,
-        "paymentHeader": payment_payload,
+        "paymentPayload": payment_payload,
         "paymentRequirements": requirements,
     }).encode()
     req = urllib.request.Request(
@@ -173,7 +173,7 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
     settlement = {"settled": False}
     try:
         s_body = json.dumps({
-            "x402Version": 1, "paymentHeader": payment,
+            "x402Version": 1, "paymentPayload": payment,
             "paymentRequirements": requirements,
         }).encode()
         s_req = urllib.request.Request(f"{_facilitator_base()}/settle", data=s_body,

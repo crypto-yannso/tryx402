@@ -77,6 +77,34 @@ class TestX402PaidCall:
         assert sum(1 for c in calls if "/verify" in c) == 1
         assert sum(1 for c in calls if "/settle" in c) == 1
 
+
+    def test_facilitator_wire_format_uses_payment_payload_key(self, monkeypatch):
+        # x402.org facilitator expects "paymentPayload", not "paymentHeader".
+        import gateway.x402_payments as xp
+
+        captured = {}
+
+        def fake_urlopen(req, timeout=15):
+            captured["body"] = json.loads(req.data.decode())
+            if "/verify" in req.full_url:
+                return _FakeResponse({"isValid": True})
+            if "/settle" in req.full_url:
+                return _FakeResponse({"success": True})
+            return _FakeResponse({"result": "ok"})
+
+        monkeypatch.setattr(xp.urllib.request, "urlopen", fake_urlopen)
+        from gateway.server import create_app
+        from starlette.testclient import TestClient
+        app = create_app()
+        app.state.price_registry.register(origin=ORIGIN, price_cents=5)
+        payload = {"origin": ORIGIN, "path": "/run", "method": "POST", "body": {}}
+        resp = TestClient(app).post("/v1/x402/call", json=payload,
+                                    headers={"X-PAYMENT": _payment_header()})
+        assert resp.status_code == 200
+        sent_verify = captured["body"]
+        assert "paymentPayload" in sent_verify
+        assert "paymentRequirements" in sent_verify
+
     def test_invalid_payment_rejected_with_402(self, monkeypatch):
         from gateway.server import create_app
         from starlette.testclient import TestClient
