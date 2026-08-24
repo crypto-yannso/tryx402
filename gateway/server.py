@@ -18,7 +18,7 @@ import time
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from .billing import StripeBilling, StripeConfigError, StripePaymentError, verify_webhook
 from .wallet_sqlite import SQLiteWallet, InsufficientBalance
@@ -130,6 +130,19 @@ class CheckoutRequest(BaseModel):
     currency: str = "eur"
 
 
+class BillingSetupRequest(BaseModel):
+    product_name: str
+    price_cents: int
+    currency: str = "eur"
+    
+    @field_validator('price_cents')
+    @classmethod
+    def validate_price_cents(cls, v):
+        if v <= 0:
+            raise ValueError('price_cents must be positive')
+        return v
+
+
 @app.post("/v1/billing/checkout")
 def create_checkout(req: CheckoutRequest) -> Dict[str, str]:
     try:
@@ -141,6 +154,29 @@ def create_checkout(req: CheckoutRequest) -> Dict[str, str]:
             mode="payment",
         )
         return {"url": session["url"], "session_id": session["id"]}
+    except StripeConfigError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    except StripePaymentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post("/v1/billing/setup")
+def billing_setup(req: BillingSetupRequest) -> Dict[str, object]:
+    """Create a Stripe product + one-time price for wallet top-ups.
+
+    This endpoint is called once by the developer/ops to provision
+    the Stripe product. It returns product_id and price_id, which
+    should then be stored in env vars:
+      TRYX402_STRIPE_PRICE_ID=price_xxx
+    """
+    try:
+        billing = StripeBilling()
+        result = billing.create_product_and_price(
+            product_name=req.product_name,
+            price_cents=req.price_cents,
+            currency=req.currency,
+        )
+        return result
     except StripeConfigError as exc:
         raise HTTPException(status_code=501, detail=str(exc))
     except StripePaymentError as exc:

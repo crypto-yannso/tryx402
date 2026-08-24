@@ -161,6 +161,40 @@ class StripeBilling:
         except Exception:
             return False
 
+    def create_product_and_price(self, product_name: str, price_cents: int, currency: str = "eur") -> Dict[str, Any]:
+        """Create a Stripe product and one-time price.
+
+        Returns:
+            Dict with product_id, price_id, product_name, price_cents, currency
+        """
+        if not self.secret_key or self.secret_key == "sk_test_dummy":
+            raise StripeConfigError("Stripe secret key not configured")
+        if price_cents <= 0:
+            raise ValueError("price_cents must be positive")
+
+        # Create product
+        product_data = _api_post("https://api.stripe.com/v1/products", {
+            "name": product_name,
+            "type": "service",
+        }, self.secret_key)
+        product_id = product_data.get("id", f"prod_dummy_{product_name[:10]}")
+
+        # Create price
+        price_data = _api_post("https://api.stripe.com/v1/prices", {
+            "product": product_id,
+            "unit_amount": str(price_cents),
+            "currency": currency.lower(),
+        }, self.secret_key)
+        price_id = price_data.get("id", f"price_dummy_{price_cents}")
+
+        return {
+            "product_id": product_id,
+            "price_id": price_id,
+            "product_name": product_name,
+            "price_cents": price_cents,
+            "currency": currency.lower(),
+        }
+
 
 def verify_webhook(
     payload_bytes: bytes,
