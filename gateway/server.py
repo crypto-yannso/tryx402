@@ -18,6 +18,7 @@ import time
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .billing import StripeBilling, StripeConfigError, StripePaymentError, verify_webhook
@@ -453,6 +454,56 @@ def x402_tools(request: Request) -> X402ToolsResponse:
 def _uses_private_check(origin: str) -> bool:
     from gateway.registry import _is_private_origin
     return _is_private_origin(origin)
+
+
+class X402CallRequest(BaseModel):
+    origin: str
+    path: str = "/"
+    method: str = "POST"
+    body: Optional[Dict] = None
+
+
+@app.post("/v1/x402/call")
+def x402_call(request: Request, req: X402CallRequest):
+    """Pay-per-call facade for external x402 agents.
+
+    No X-PAYMENT -> 402 with payment requirements (spec-conformant).
+    Valid X-PAYMENT -> verify via facilitator, then proxy to the origin.
+    """
+    registry: PriceRegistry = request.app.state.price_registry
+    url = f"{req.origin.rstrip('/')}{req.path}"
+    try:
+        price_cents = registry.lookup(url)
+    except UnknownOriginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PrivateOriginError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    pay_to = _facade_pay_to()
+    if not pay_to:
+        raise HTTPException(
+            status_code=503,
+            detail="x402 settlement address not configured (TRYX402_PAY_TO_ADDRESS)",
+        )
+
+    payment_header = request.headers.get("X-PAYMENT", "")
+    if not payment_header:
+        return JSONResponse(
+            status_code=402,
+            content=build_402_response(
+                resource_url=_facade_resource_url(request, "/v1/x402/call"),
+                description=f"tryx402 proxy for {req.origin}",
+                price_cents=price_cents,
+                pay_to=pay_to,
+            ),
+        )
+
+    # Payment present -> delegated to the payment-flow cycle (next).
+    from .x402_payments import handle_paid_call
+    return handle_paid_call(
+        request=request, req=req, price_cents=price_cents,
+        pay_to=pay_to, resource_url=_facade_resource_url(request, "/v1/x402/call"),
+    )
 
 
 # ---------------------------------------------------------------------------
