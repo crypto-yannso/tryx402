@@ -91,7 +91,7 @@ class Gateway:
             raise RuntimeError("recharge() needs an API key: pass api_key= or set TRYX402_API_KEY")
         url = f"{self.api_base}/v1/billing/checkout"
         payload = json.dumps({
-            "customer_email": "",  # optional, server can extract from API key
+            "customer_email": "",
             "amount_cents": amount_cents,
             "currency": currency,
         }).encode()
@@ -113,6 +113,42 @@ class Gateway:
 
     def spend_by_origin(self) -> dict:
         return self._client.ledger.by_origin()
+
+    # --- competitive-parity additions (0.3.0) -------------------------------
+
+    def plan(self, steps):
+        """Price a multi-call workflow BEFORE spending anything.
+
+        Steps: list of (url, body?, expected_price?) tuples, PlanStep, or
+        dicts {url, body, price}. Pure estimation — no wallet activity.
+        """
+        from tryx402.planner import estimate_plan
+        est = estimate_plan(steps, spent_usd=self.spent_usd,
+                            max_budget_usd=self._client.max_budget_usd)
+        return est.to_dict()
+
+    def receipt(self, endpoint: str, origin: str, price_usd: float,
+                tx_hash: str | None = None, **kw) -> dict:
+        """Sign a verifiable receipt for the last (or any) paid call."""
+        from tryx402.receipts import ReceiptBuilder
+        if not hasattr(self, "_receipts"):
+            self._receipts = ReceiptBuilder()
+        return self._receipts.build(endpoint=endpoint, origin=origin,
+                                    price_usd=price_usd, tx_hash=tx_hash, **kw)
+
+    def session(self, cap_usd: float | None = None, ttl_s: int = 3600):
+        """Mint a governed sub-session with its own spend cap + breaker.
+
+            sess = gw.session(cap_usd=0.50)
+            sess.call(url, expected_price=0.03)
+
+        Blast radius per task; a runaway loop can only burn the session cap.
+        """
+        from tryx402.sessions import CircuitBreaker, SessionManager, SessionedClient
+        if not hasattr(self, "_session_mgr"):
+            self._session_mgr = SessionManager()
+        tok = self._session_mgr.mint(cap_usd=cap_usd or 1.0, ttl_s=ttl_s)
+        return SessionedClient(self._client, tok, self._session_mgr)
 
     @property
     def ledger(self):
