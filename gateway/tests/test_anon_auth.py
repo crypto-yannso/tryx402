@@ -44,18 +44,22 @@ class TestAnonAuth:
             app = create_app()
             client = TestClient(app)
             
-            # New customer_id hits the proxy
+            # Mint a session, register a known origin, then hit the proxy
+            sess = client.post("/v1/auth/session", json={}).json()
+            app.state.price_registry.register(
+                origin="https://example.com", price_cents=3)
+            headers = {"X-Customer-ID": sess["customer_id"],
+                       "X-Session-Token": sess["token"]}
             resp = client.post("/v1/proxy/call", json={
                 "url": "https://example.com/api",
                 "body": {"test": True},
-                "price_usd": 0.03,
-            }, headers={"X-Customer-ID": "new-customer-123"})
+            }, headers=headers)
             
             # Should get 402 (insufficient balance) not 401/404
             assert resp.status_code == 402
             
             # Wallet should have been created with 0 balance
-            wallet = SQLiteWallet(db_path, "new-customer-123")
+            wallet = SQLiteWallet(db_path, sess["customer_id"])
             assert wallet.get_balance() == 0
         finally:
             if old_db is None:

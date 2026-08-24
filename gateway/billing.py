@@ -85,6 +85,8 @@ class StripeBilling:
         success_url: Optional[str] = None,
         cancel_url: Optional[str] = None,
         webhook_secret: Optional[str] = None,
+        amount_cents: Optional[int] = None,
+        currency: Optional[str] = None,
     ) -> None:
         self.secret_key = secret_key or _require_env("TRYX402_STRIPE_SECRET_KEY", "Stripe secret key")
         self.price_id = price_id or os.environ.get("TRYX402_STRIPE_PRICE_ID", "")
@@ -95,6 +97,10 @@ class StripeBilling:
             "TRYX402_STRIPE_CANCEL_URL", "https://tryx402.app/billing/cancel"
         )
         self.webhook_secret = webhook_secret or os.environ.get("TRYX402_STRIPE_WEBHOOK_SECRET", "")
+        # Per-request amount/currency: passed explicitly by callers instead of
+        # mutating global os.environ (which is a cross-request race).
+        self.amount_cents = amount_cents
+        self.currency = currency
 
     def create_checkout_session(
         self,
@@ -123,8 +129,8 @@ class StripeBilling:
                 raise StripeConfigError("TRYX402_STRIPE_PRICE_ID is required for subscription mode.")
             payload["line_items"] = [{"price": self.price_id, "quantity": 1}]
         else:
-            amount = os.environ.get("TRYX402_STRIPE_AMOUNT_CENTS")
-            currency = os.environ.get("TRYX402_STRIPE_CURRENCY", "usd")
+            amount = self.amount_cents or os.environ.get("TRYX402_STRIPE_AMOUNT_CENTS")
+            currency = self.currency or os.environ.get("TRYX402_STRIPE_CURRENCY", "usd")
             if not amount:
                 raise StripeConfigError("TRYX402_STRIPE_AMOUNT_CENTS is required for one-time mode.")
             payload["line_items"] = [{

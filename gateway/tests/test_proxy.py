@@ -27,13 +27,15 @@ class TestProxyEndpoint:
         from starlette.testclient import TestClient
         app = create_app()
         client = TestClient(app)
-        # Empty wallet, trying to call a paid endpoint
+        # Mint session, register origin, empty wallet -> 402
+        sess = client.post("/v1/auth/session", json={}).json()
+        app.state.price_registry.register(origin="https://example.com", price_cents=3)
         resp = client.post("/v1/proxy/call", json={
             "url": "https://example.com/api",
             "body": {"test": True},
-            "price_usd": 0.03,
-        }, headers={"X-API-Key": "test_key_empty"})
-        assert resp.status_code in (402, 403, 500)
+        }, headers={"X-Customer-ID": sess["customer_id"],
+                    "X-Session-Token": sess["token"]})
+        assert resp.status_code == 402
 
     def test_proxy_debits_wallet_with_commission(self):
         import os, tempfile
@@ -58,18 +60,25 @@ class TestProxyEndpoint:
             app = create_app()
             client = TestClient(app)
             
-            # The proxy should debit 330 cents (300 + 10% commission)
+            app.state.price_registry.register(
+                origin="https://example.com", price_cents=300)
+            sess = client.post("/v1/auth/session", json={}).json()
+            # Fund the session's own wallet
+            wallet = SQLiteWallet(db_path, customer_id=sess["customer_id"])
+            wallet.credit(amount_cents=1000, description="Initial deposit")
+            
+            # The proxy debits the SERVER-set price (300) + commission
             resp = client.post("/v1/proxy/call", json={
                 "url": "https://example.com/api",
                 "body": {"test": True},
-                "price_usd": 0.03,
-            }, headers={"X-API-Key": "proxy_001"})
+            }, headers={"X-Customer-ID": sess["customer_id"],
+                        "X-Session-Token": sess["token"]})
             
-            # Expect 200 (success) or 502 (provider unreachable, but wallet debited)
-            assert resp.status_code in (200, 502, 500)
-            # Check wallet was debited
-            new_balance = wallet.get_balance()
-            assert new_balance < 1000  # Something was debited
+            # Expect 502 (provider unreachable, wallet refunded) or 200
+            assert resp.status_code in (200, 502)
+            if resp.status_code == 200:
+                new_balance = wallet.get_balance()
+                assert new_balance < 1000  # Something was debited
         finally:
             if old_db_path is None:
                 os.environ.pop("TRYX402_DB_PATH", None)

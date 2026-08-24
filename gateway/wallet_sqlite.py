@@ -87,6 +87,74 @@ class SQLiteWallet:
                 conn.commit()
         return txn
 
+    def debit_if_affordable(self, amount_cents: int, description: str) -> Transaction:
+        """Atomically debit only if balance suffices.
+
+        The balance check and the INSERT run inside ONE SQLite transaction
+        with BEGIN IMMEDIATE, so concurrent callers can never push the
+        balance negative (closes the check-then-debit race).
+        """
+        if amount_cents <= 0:
+            raise ValueError("amount_cents must be positive")
+        with self._lock:
+            conn = sqlite3.connect(self.db_path, isolation_level=None)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(CASE WHEN type='credit' THEN amount_cents ELSE -amount_cents END), 0) "
+                    "FROM transactions WHERE customer_id = ?",
+                    (self.customer_id,),
+                ).fetchone()
+                balance = row[0]
+                if balance < amount_cents:
+                    conn.execute("ROLLBACK")
+                    raise InsufficientBalance(
+                        f"Insufficient balance: {balance} cents, need {amount_cents}"
+                    )
+                txn = Transaction(
+                    customer_id=self.customer_id,
+                    type="debit",
+                    amount_cents=amount_cents,
+                    description=description,
+                )
+                conn.execute(
+                    "INSERT INTO transactions (customer_id, type, amount_cents, description, stripe_session_id, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        self.customer_id,
+                        "debit",
+                        amount_cents,
+                        description,
+                        None,
+                        txn.timestamp,
+                    ),
+                )
+                conn.execute("COMMIT")
+                return txn
+            finally:
+                conn.close()
+
+    def refund(self, amount_cents: int, description: str,
+               related_description: str = "") -> Transaction:
+        """Credit back a previously debited amount (provider failure)."""
+        if amount_cents <= 0:
+            raise ValueError("amount_cents must be positive")
+        return self.credit(
+            amount_cents,
+            description=f"REFUND: {description}",
+        )
+
+    def has_stripe_session(self, stripe_session_id: str) -> bool:
+        """True if this Stripe session id was already credited (idempotency)."""
+        if not stripe_session_id:
+            return False
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM transactions WHERE customer_id = ? AND stripe_session_id = ? LIMIT 1",
+                (self.customer_id, stripe_session_id),
+            ).fetchone()
+            return row is not None
+
     def debit(self, amount_cents: int, description: str) -> Transaction:
         if amount_cents <= 0:
             raise ValueError("amount_cents must be positive")
