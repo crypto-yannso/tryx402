@@ -84,18 +84,12 @@ class TestAnonAuth:
         from gateway.api import Gateway
         from gateway.anon_auth import get_or_create_customer_id
         
-        # Mock the HTTP response
+        # Mock the HTTP responses: session mint, then proxy call
         class MockResponse:
+            def __init__(self, payload):
+                self._payload = json.dumps(payload).encode()
             def read(self):
-                return json.dumps({
-                    "status_code": 200,
-                    "headers": {},
-                    "body": "ok",
-                    "cost_cents": 300,
-                    "commission_cents": 30,
-                    "total_cents": 330,
-                    "new_balance_cents": 670,
-                }).encode()
+                return self._payload
             def __enter__(self):
                 return self
             def __exit__(self, *a):
@@ -107,7 +101,17 @@ class TestAnonAuth:
         
         def mock_urlopen(req, *a, **kw):
             calls.append(req)
-            return MockResponse()
+            if "/v1/auth/session" in req.full_url:
+                return MockResponse({"customer_id": "cid-test", "token": "tok-test"})
+            return MockResponse({
+                "status_code": 200,
+                "headers": {},
+                "body": "ok",
+                "cost_cents": 300,
+                "commission_cents": 30,
+                "total_cents": 330,
+                "new_balance_cents": 670,
+            })
         
         monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
         
@@ -115,13 +119,13 @@ class TestAnonAuth:
         result = gw.proxy_call(
             "https://example.com/api",
             body={"test": True},
-            price_usd=0.03,
         )
         
-        assert len(calls) == 1
-        req = calls[0]
+        assert len(calls) == 2  # /v1/auth/session then proxy call
+        req = calls[1]
         # HTTP headers are case-insensitive; urllib normalizes to lowercase
         headers_lower = {k.lower(): v for k, v in req.headers.items()}
         assert "x-customer-id" in headers_lower
         cid = headers_lower["x-customer-id"]
         assert len(cid) > 0
+        assert headers_lower.get("x-session-token")  # session auth bound

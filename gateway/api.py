@@ -34,6 +34,7 @@ class Gateway:
         self.api_key = api_key or os.environ.get("TRYX402_API_KEY")
         self._client = SafeClient(binary=binary, max_budget_usd=max_budget_usd,
                                   idempotent=idempotent, **client_kwargs)
+        self._session: tuple | None = None  # (customer_id, token)
 
     def call(self, url, body=None, *, method="POST", price=None,
              max_amount=None, account=None):
@@ -67,15 +68,31 @@ class Gateway:
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"quote failed: HTTP {e.code} {e.read().decode()[:200]}") from e
 
-    def check_balance(self) -> dict | None:
+    def check_balance(self, api_key: str | None = None) -> dict | None:
         """Check wallet balance on the hosted service.
 
-        Returns the balance dict if an API key is configured, None otherwise.
+        Session auth by default; falls back to api_key when provided
+        (backward compat for server-side deployments).
         """
-        if not self.api_key:
+        if api_key or self.api_key:
+            key = api_key or self.api_key
+            url = f"{self.api_base}/v1/wallet/balance"
+            req = urllib.request.Request(url, headers={"X-API-Key": key})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    return json.loads(r.read().decode())
+            except Exception:
+                return None
+
+        try:
+            customer_id, token = self._ensure_session()
+        except Exception:
             return None
         url = f"{self.api_base}/v1/wallet/balance"
-        req = urllib.request.Request(url, headers={"X-API-Key": self.api_key})
+        req = urllib.request.Request(url, headers={
+            "X-Customer-ID": customer_id,
+            "X-Session-Token": token,
+        })
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 return json.loads(r.read().decode())
@@ -107,38 +124,56 @@ class Gateway:
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"recharge failed: HTTP {e.code} {e.read().decode()[:200]}") from e
 
-    def proxy_call(self, url: str, body=None, *, method: str = "POST",
-                   price_usd: float | None = None) -> dict:
+    def _ensure_session(self) -> tuple:
+        """Return (customer_id, token), minting the session on first use.
+
+        The customer_id is persisted locally (anon_auth); the token is
+        obtained from POST /v1/auth/session and cached for this Gateway's
+        lifetime.
+        """
+        if self._session is None:
+            from .anon_auth import get_or_create_customer_id
+            customer_id = get_or_create_customer_id()
+            req = urllib.request.Request(
+                f"{self.api_base}/v1/auth/session",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.loads(r.read().decode())
+            # Server-issued customer_id wins (it owns the server-side wallet)
+            self._session = (data.get("customer_id", customer_id),
+                             data["token"])
+        return self._session
+
+    def proxy_call(self, url: str, body=None, *, method: str = "POST") -> dict:
         """Call through the hosted proxy (transparent commission layer).
 
         This is the revenue-generating path: every call incurs a commission
         (default 10%) that is debited from the wallet.
 
-        No API key required: the SDK uses an anonymous customer ID.
-        The only human action needed is the Stripe card payment when balance is empty.
+        Auth: session token minted from /v1/auth/session, bound to the
+        persistent anonymous customer ID. Price is set SERVER-side; there is
+        deliberately no price_usd parameter anymore.
 
         Returns the proxy response including breakdown:
           - cost_cents, commission_cents, total_cents, new_balance_cents
         """
-        if price_usd is None:
-            raise ValueError("price_usd is required for proxy_call (used to calculate commission)")
-        
-        # Get or create anonymous customer ID
-        from .anon_auth import get_or_create_customer_id
-        customer_id = get_or_create_customer_id()
-        
+        customer_id, token = self._ensure_session()
+
         proxy_url = f"{self.api_base}/v1/proxy/call"
         payload = json.dumps({
             "url": url,
             "body": body or {},
             "method": method,
-            "price_usd": float(price_usd),
         }).encode()
         req = urllib.request.Request(
             proxy_url,
             data=payload,
             headers={
                 "X-Customer-ID": customer_id,
+                "X-Session-Token": token,
                 "Content-Type": "application/json",
             },
             method="POST",
