@@ -145,6 +145,22 @@ TOOLS = [
             "required": ["amount_cents"]
         }
     },
+    {
+        "name": "gateway_proxy_call",
+        "description": "Call an x402 endpoint through the tryx402 proxy. "
+                       "Debits wallet with commission (default 10%). "
+                       "This is how tryx402 makes money. Requires API key.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "body": {"type": "object"},
+                "method": {"type": "string"},
+                "price_usd": {"type": "number"}
+            },
+            "required": ["url", "price_usd"]
+        }
+    },
 ]
 
 
@@ -189,6 +205,13 @@ def _handle_tool(name, args):
             amount = int(args.get("amount_cents", 0))
             currency = args.get("currency", "eur")
             result = _GW.recharge(amount_cents=amount, currency=currency)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        if name == "gateway_proxy_call":
+            url = args.get("url", "")
+            body = args.get("body")
+            method = args.get("method", "POST")
+            price_usd = float(args.get("price_usd", 0))
+            result = _GW.proxy_call(url, body=body, method=method, price_usd=price_usd)
             return json.dumps(result, ensure_ascii=False, indent=2)
         raise ValueError(f"unknown tool: {name}")
     except Exception as exc:  # noqa: BLE001

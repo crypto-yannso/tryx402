@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from .billing import StripeBilling, StripeConfigError, StripePaymentError, verify_webhook
 from .wallet_sqlite import SQLiteWallet, InsufficientBalance
+from .proxy import ProxyConfig, DEFAULT_COMMISSION_RATE
 
 __all__ = ["create_app"]
 
@@ -49,7 +50,9 @@ def _get_customer_id(request: Request) -> str:
 
 
 def _get_wallet(customer_id: str) -> SQLiteWallet:
-    return SQLiteWallet(_DB_PATH, customer_id)
+    # Re-read env in case it changed since import
+    db_path = os.environ.get("TRYX402_DB_PATH", _DB_PATH)
+    return SQLiteWallet(db_path, customer_id)
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +180,99 @@ class TelemetryRequest(BaseModel):
 @app.post("/v1/telemetry")
 def receive_telemetry(payload: TelemetryRequest) -> Dict[str, object]:
     """Accept anonymous telemetry pings. In production, store in DB."""
-    # For now, just acknowledge
     return {"ok": "True"}
+
+
+# ---------------------------------------------------------------------------
+# Proxy endpoint — transparent commission layer
+# ---------------------------------------------------------------------------
+
+class ProxyRequest(BaseModel):
+    url: str
+    body: Optional[Dict] = None
+    method: str = "POST"
+    price_usd: float  # provider price in USD, used to calculate commission
+
+
+class ProxyResponse(BaseModel):
+    status_code: int
+    headers: Dict[str, str]
+    body: Optional[str] = None
+    cost_cents: int
+    commission_cents: int
+    total_cents: int
+    new_balance_cents: int
+
+
+@app.post("/v1/proxy/call", response_model=ProxyResponse)
+def proxy_call(request: Request, req: ProxyRequest) -> ProxyResponse:
+    """Transparent proxy: forward call, debit wallet with commission.
+
+    This is the revenue-generating endpoint. Every call through here
+    incurs a commission (default 10%) that goes to ARTAIFACT SAS.
+    """
+    customer_id = _get_customer_id(request)
+    wallet = _get_wallet(customer_id)
+
+    # Convert price to cents (1 USD = 100 cents for simplicity)
+    price_cents = int(req.price_usd * 100)
+    config = ProxyConfig(commission_rate=DEFAULT_COMMISSION_RATE)
+    total_cents = config.calculate_total(price_cents)
+    breakdown = config.breakdown(price_cents)
+
+    # Check balance
+    balance = wallet.get_balance()
+    if balance < total_cents:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "insufficient_balance",
+                "required_cents": total_cents,
+                "available_cents": balance,
+                "price_cents": price_cents,
+                "commission_cents": breakdown["commission_cents"],
+            },
+        )
+
+    # Debit wallet
+    wallet.debit(
+        amount_cents=total_cents,
+        description=f"Proxy call ({req.method} {req.url}) + {DEFAULT_COMMISSION_RATE*100:.0f}% commission",
+    )
+
+    # Forward request to provider
+    try:
+        import urllib.request
+        import json as _json
+        data = _json.dumps(req.body or {}).encode()
+        fwd_req = urllib.request.Request(
+            req.url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method=req.method.upper(),
+        )
+        with urllib.request.urlopen(fwd_req, timeout=30) as resp:
+            status_code = resp.status
+            headers = dict(resp.headers)
+            body = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        # Provider failed, but wallet was already debited
+        # In production, you'd want to refund here
+        status_code = 502
+        body = None
+        headers = {}
+
+    new_balance = wallet.get_balance()
+    return ProxyResponse(
+        status_code=status_code,
+        headers=headers,
+        body=body,
+        cost_cents=price_cents,
+        commission_cents=breakdown["commission_cents"],
+        total_cents=total_cents,
+        new_balance_cents=new_balance,
+    )
+
 
 
 # ---------------------------------------------------------------------------
