@@ -67,6 +67,46 @@ class Gateway:
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"quote failed: HTTP {e.code} {e.read().decode()[:200]}") from e
 
+    def check_balance(self) -> dict | None:
+        """Check wallet balance on the hosted service.
+
+        Returns the balance dict if an API key is configured, None otherwise.
+        """
+        if not self.api_key:
+            return None
+        url = f"{self.api_base}/v1/wallet/balance"
+        req = urllib.request.Request(url, headers={"X-API-Key": self.api_key})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return json.loads(r.read().decode())
+        except Exception:
+            return None
+
+    def recharge(self, amount_cents: int, currency: str = "eur") -> dict:
+        """Create a Stripe Checkout session to top up the wallet.
+
+        Requires an API key and TRYX402_STRIPE_SECRET_KEY on the server.
+        """
+        if not self.api_key:
+            raise RuntimeError("recharge() needs an API key: pass api_key= or set TRYX402_API_KEY")
+        url = f"{self.api_base}/v1/billing/checkout"
+        payload = json.dumps({
+            "customer_email": "",  # optional, server can extract from API key
+            "amount_cents": amount_cents,
+            "currency": currency,
+        }).encode()
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"X-API-Key": self.api_key, "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"recharge failed: HTTP {e.code} {e.read().decode()[:200]}") from e
+
     @property
     def spent_usd(self) -> float:
         return self._client.ledger.total_usd
