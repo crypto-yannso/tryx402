@@ -149,7 +149,8 @@ TOOLS = [
         "name": "gateway_proxy_call",
         "description": "Call an x402 endpoint through the tryx402 proxy. "
                        "Debits wallet with commission (default 10%). "
-                       "This is how tryx402 makes money. Requires API key.",
+                       "No API key needed: uses anonymous customer ID. "
+                       "This is how tryx402 makes money.",
         "inputSchema": {
             "type": "object",
             "properties": {
