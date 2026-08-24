@@ -1,4 +1,6 @@
-# tryx402 — the gateway behind tryx402.app
+# tryx402 — the OpenRouter for agent payments
+
+<!-- mcp-name: io.github.crypto-yannso/tryx402 -->
 
 A safe, **provider-agnostic** wrapper over AgentCash / x402. Not limited to
 prospecting — it drives *any* endpoint, and adds what AgentCash itself lacks and
