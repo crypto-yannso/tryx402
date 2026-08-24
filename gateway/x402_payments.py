@@ -59,6 +59,12 @@ def _facilitator_base() -> str:
     ).rstrip("/")
 
 
+def _facilitator_user_agent() -> str:
+    """UA for facilitator calls. The public facilitator sits behind
+    Cloudflare bot protection which 403s the default python-urllib UA."""
+    return "tryx402-facade/1.0 (https://tryx402.fly.dev)"
+
+
 def verify_with_facilitator(payment_payload: dict,
                             requirements: dict) -> dict:
     """POST /verify to the facilitator. Returns its JSON verdict.
@@ -75,7 +81,8 @@ def verify_with_facilitator(payment_payload: dict,
     req = urllib.request.Request(
         f"{_facilitator_base()}/verify",
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json",
+                 "User-Agent": _facilitator_user_agent()},
         method="POST",
     )
     try:
@@ -170,7 +177,8 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
             "paymentRequirements": requirements,
         }).encode()
         s_req = urllib.request.Request(f"{_facilitator_base()}/settle", data=s_body,
-                                       headers={"Content-Type": "application/json"},
+                                       headers={"Content-Type": "application/json",
+                                                "User-Agent": _facilitator_user_agent()},
                                        method="POST")
         with urllib.request.urlopen(s_req, timeout=15) as s_resp:
             settlement = json.loads(s_resp.read())
