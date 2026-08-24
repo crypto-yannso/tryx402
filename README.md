@@ -2,6 +2,8 @@
 
 <!-- mcp-name: io.github.crypto-yannso/tryx402 -->
 
+**MIT licensed. Built in France. The first open-source payment governance layer for AI agents.**
+
 A safe, **provider-agnostic** wrapper over AgentCash / x402. Not limited to
 prospecting — it drives *any* endpoint, and adds what AgentCash itself lacks and
 we learned we need the hard way:
@@ -9,21 +11,38 @@ we learned we need the hard way:
 - **hard budget caps** — stop before overspending
 - **idempotency** — never pay twice for the same call (the $0.83 double-charge lesson)
 - **cost ledger** — USD spent, reconciled, grouped by origin / account
+- **plan estimation** — price a multi-call workflow before spending a single cent
+- **signed receipts** — Ed25519 offline-verifiable proof of every payment
+- **session tokens + circuit breaker** — per-task spend caps with half-open cooldown
+- **transparent 402→pay→retry** — native httpx transport, exactly one retry, no loops
+- **discovery pipeline** — live x402 bazaar indexing (Onyx Bazaar, gold-402)
 
-## Open core, closed engine
+## Open source, no fear
 
 This repo is the **open-source SDK**: the safe caller, budget guard, idempotency,
 ledger, CLI and MCP server. MIT licensed.
+
+We don't hide features behind paywalls. We don't split the SDK into "core" and "pro".
+Everything is here. Use it, fork it, build on it.
 
 The **hosted service** (https://www.tryx402.app) is the commercial engine:
 multi-currency fiat billing, margins, FX, Stripe funding, the verified-tools
 catalogue and the provider portal. Pricing is decided **server-side** via
 `/v1/quote` — a client-side margin is a margin nobody pays.
 
-| Face | Who | Where |
-|---|---|---|
-| **Power-tool** | you / an agent drive paid endpoints safely | this SDK (`gateway.cli`, `gateway.client`) |
-| **Fiat gateway** | end users pay in their currency, you resell x402 with margin | hosted service (closed) |
+**Revenue model**: commission on every pay-per-call transaction routed through
+the hosted service. The SDK is free. The service takes a cut. That's it.
+
+## Positionnement
+
+tryx402 est le **premier SDK open source de gouvernance de paiements pour agents IA** 
+dans l'écosystème x402. Conçu en France, distribué sous MIT, adopté par la communauté.
+
+Face aux agrégateurs propriétaires (treg.to et consorts), tryx402 défend une position 
+différente : pas de lock-in, pas de licence restrictive, pas de "commercial use only". 
+Le code est libre. La confiance vient du service, pas de la licence.
+
+| Face | Who | Where |\n|---|---|---|\n| **Power-tool** | you / an agent drive paid endpoints safely | this SDK (`gateway.cli`, `gateway.client`) |\n| **Fiat gateway** | end users pay in their currency, you resell x402 with margin | hosted service (closed) |
 
 ## Embed it (for agents)
 
