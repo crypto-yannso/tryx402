@@ -1,0 +1,23 @@
+# Smithery configuration: https://smithery.ai/docs
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      maxBudgetUsd:
+        type: number
+        description: Hard session-wide budget cap in USD for all paid calls (default 1.00).
+      walletKey:
+        type: string
+        description: Base EVM private key used to sign x402 payments (X402_WALLET_KEY). Keep secret.
+    required:
+      - walletKey
+  commandFunction: |-
+    (config) => ({
+      "command": "python3",
+      "args": ["-m", "gateway.mcp_server"],
+      "env": {
+        "GATEWAY_MAX_BUDGET_USD": String(config.maxBudgetUsd ?? 1.00),
+        "X402_WALLET_KEY": config.walletKey
+      }
+    })
