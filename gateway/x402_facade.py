@@ -52,7 +52,8 @@ def build_accepts(
     entry = {
         "scheme": "exact",
         "network": network or DEFAULT_NETWORK,
-        "maxAmountRequired": _atomic_units(int(price_cents)),
+        # v1 wire format: amounts are strings (SDK pydantic requirement)
+        "maxAmountRequired": str(_atomic_units(int(price_cents))),
         "asset": asset or DEFAULT_ASSET,
         "payTo": pay_to.strip(),
         "resource": resource_url,

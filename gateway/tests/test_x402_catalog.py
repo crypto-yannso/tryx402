@@ -34,8 +34,8 @@ class TestX402ToolsCatalog:
         data = resp.json()
         assert data["x402Version"] == 1
         tools = {t["origin"]: t for t in data["tools"]}
-        assert tools["https://api.apify.com"]["maxAmountRequired"] == 50_000
-        assert tools["https://serpapi.com"]["maxAmountRequired"] == 100_000
+        assert tools["https://api.apify.com"]["maxAmountRequired"] == "50000"
+        assert tools["https://serpapi.com"]["maxAmountRequired"] == "100000"
         assert tools["https://api.apify.com"]["scheme"] == "exact"
 
     def test_empty_registry_returns_empty_tools_not_error(self):

@@ -44,7 +44,7 @@ class TestX402CallPaywall:
         assert data["x402Version"] == 1
         accepts = data["accepts"]
         assert accepts[0]["scheme"] == "exact"
-        assert accepts[0]["maxAmountRequired"] == PRICE_CENTS * 10_000  # atomic USDC
+        assert accepts[0]["maxAmountRequired"] == str(PRICE_CENTS * 10_000)  # atomic USDC as string
         assert accepts[0]["payTo"] == PUBLIC_KEY
 
     def test_unknown_origin_returns_400_not_402(self):
