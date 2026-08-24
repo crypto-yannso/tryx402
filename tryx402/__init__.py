@@ -1,25 +1,21 @@
-"""AgentCash Gateway — a safe, provider-agnostic wrapper over AgentCash / x402.
+"""tryx402 — safe, provider-agnostic x402 payment governance for AI agents.
 
-It adds the things AgentCash itself does NOT provide, and that we learned the
-hard way we need in production:
-
+Adds what AgentCash itself lacks and we learned we need the hard way:
   * hard budget caps        (stop before overspending)
   * idempotency             (never pay twice for the same call — the $0.83 lesson)
-  * a reconciled cost ledger (USD spent, per origin / per account)
-  * multi-currency billing  (end users pay in their own currency, never the wallet)
+  * cost ledger             (USD/EUR spent, grouped by origin / account)
+  * plan estimation         (price a workflow before spending)
+  * signed receipts         (Ed25519 offline-verifiable proof)
+  * session tokens + breaker (per-task caps with half-open cooldown)
+  * transparent 402→pay→retry (native httpx transport)
+  * discovery pipeline      (live x402 bazaar indexing)
 
-Easy to embed for agents:
-    from gateway import Gateway
-    gw = Gateway(max_budget_usd=1.0)
-    gw.call(url, body={...}, price=0.03)
-
-…or a single terminal command (like `agentcash`) once installed:
-    gateway call <url> --body '{...}' --price 0.03 --max-budget 0.10
-
-Prospecting (../prospect_relay) is just one application on top of this core.
+MIT licensed. Built in France.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
+
+from ._telemetry import _ping  # noqa: F401  — best-effort, never raises
 
 from .api import Gateway
 from .client import AgentCashError, BudgetExceeded, SafeClient

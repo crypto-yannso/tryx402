@@ -118,3 +118,20 @@ gateway quote 0.04
 - **Real (this SDK):** the safe caller, budget cap, idempotency, cost ledger, catalogue search/discover.
 - **Hosted:** accounts, balances, fiat funding (Stripe), FX conversion, margins — all decided by the server; the SDK only asks with `quote()`.
 - **Deliberately off:** auto-retry of paid calls (default `max_retries=0`) — retrying a possibly-paid call is what double-charged us; opt in only if the server honors the `Idempotency-Key` header.
+
+## Telemetry (optional)
+
+tryx402 sends **one anonymous ping on first import** to help us understand usage:
+install-id (random, persisted locally), package version, Python version, platform.
+
+No PII. No tracking across sites. No personal data.
+
+**Disable it anytime:**
+```bash
+export TRYX402_NO_TELEMETRY=1
+```
+
+Or set an empty URL to disable:
+```bash
+export TRYX402_TELEMETRY_URL=""
+```
