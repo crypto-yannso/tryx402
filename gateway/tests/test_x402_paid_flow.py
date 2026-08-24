@@ -13,8 +13,11 @@ PUBLIC_KEY = "0xabc0000000000000000000000000000000000001"
 ORIGIN = "https://api.apify.com"
 
 
-def _payment_header(payer="0xpayer0000000000000000000000000000000001"):
+def _payment_header(payer="0xpayer0000000000000000000000000000000001",
+                    nonce=None):
     payload = {"x402Version": 1, "scheme": "exact", "from": payer}
+    if nonce:
+        payload["nonce"] = nonce
     return base64.b64encode(json.dumps(payload).encode()).decode()
 
 
@@ -118,7 +121,8 @@ class TestX402PaidCall:
 
         monkeypatch.setattr(xp.urllib.request, "urlopen", fake_urlopen)
         app = self._register(create_app())
-        resp = self._post(TestClient(app))
+        resp = self._post(TestClient(app),
+                          headers={"X-PAYMENT": _payment_header(nonce="invalid-1")})
         assert resp.status_code == 402
         assert "insufficient_funds" in resp.text
 
@@ -155,10 +159,12 @@ class TestX402PaidCall:
                                          "Internal Server Error", {}, _ErrResponse())
 
         monkeypatch.setattr(xp.urllib.request, "urlopen", fake_urlopen)
+        from gateway.server import create_app
+        from starlette.testclient import TestClient
         app = self._register(create_app())
         payload = {"origin": ORIGIN, "path": "/run", "method": "POST", "body": {}}
         resp = TestClient(app).post("/v1/x402/call", json=payload,
-                                    headers={"X-PAYMENT": _payment_header()})
+                                    headers={"X-PAYMENT": _payment_header(nonce="fac-err")})
         assert resp.status_code == 402
         assert "internal" in resp.text or "500" in resp.text
 
