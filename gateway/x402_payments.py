@@ -27,6 +27,31 @@ def decode_x402_header(header_value: str) -> dict:
         raise FacilitatorError(f"malformed X-PAYMENT header: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# Replay protection (in-process; production should back this with Redis/DB)
+# ---------------------------------------------------------------------------
+
+_seen_payments: set = set()
+_SEEN_PAYMENTS_MAX = 100_000
+
+
+def _payment_fingerprint(header_value: str) -> str:
+    import hashlib
+    return hashlib.sha256(header_value.encode()).hexdigest()
+
+
+def _claim_payment(payment_id: str) -> bool:
+    """Atomically claim a payment id. False => already seen (replay)."""
+    if payment_id in _seen_payments:
+        return False
+    if len(_seen_payments) >= _SEEN_PAYMENTS_MAX:
+        # bounded memory: drop the set (oldest entries untracked) rather
+        # than leak; real deployments use an LRU or persistent store.
+        _seen_payments.clear()
+    _seen_payments.add(payment_id)
+    return True
+
+
 def _facilitator_base() -> str:
     return os.environ.get(
         "TRYX402_FACILITATOR_URL",
@@ -76,7 +101,6 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
     from fastapi.responses import JSONResponse
     from fastapi import HTTPException
     from .proxy import ProxyConfig, DEFAULT_COMMISSION_RATE, DEFAULT_MIN_COMMISSION_CENTS
-    from . import server as srv
 
     # 1) Decode + verify the payment with the facilitator
     header = request.headers.get("X-PAYMENT", "")
@@ -84,6 +108,17 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
         payment = decode_x402_header(header)
     except FacilitatorError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # 1b) Replay protection: a given payment header is processed at most once.
+    payment_id = _payment_fingerprint(header)
+    if not _claim_payment(payment_id):
+        raise HTTPException(status_code=409, detail={
+            "error": "duplicate_payment",
+            "message": ("this X-PAYMENT was already processed; if your first "
+                        "attempt failed upstream, contact ops with this id "
+                        "for reconciliation — never replay a paid header"),
+            "payment_id": payment_id,
+        })
 
     config = ProxyConfig(commission_rate=DEFAULT_COMMISSION_RATE,
                          min_commission_cents=DEFAULT_MIN_COMMISSION_CENTS)
@@ -142,11 +177,68 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
     except Exception as exc:
         settlement = {"settled": False, "error": str(exc)}
 
-    return JSONResponse(status_code=200, content={
+    # 4) Sign a portable receipt (Ed25519) when a key is configured
+    receipt = _build_receipt(
+        endpoint=req.path, origin=req.origin, price_cents=price_cents,
+        tx_hash=(settlement or {}).get("transaction") or (settlement or {}).get("txHash"),
+        payer=payment.get("from"),
+    )
+
+    content = {
         "status_code": status_code,
         "body": body,
         "cost_cents": price_cents,
         "commission_cents": config.breakdown(price_cents)["commission_cents"],
         "total_atomic_units": requirements["maxAmountRequired"],
         "settlement": settlement,
-    })
+    }
+    if receipt is not None:
+        content["receipt"] = receipt
+    response = JSONResponse(status_code=200, content=content)
+    if receipt is not None:
+        response.headers["X-RECEIPT"] = "1"
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Receipt signing (module-level cached signer)
+# ---------------------------------------------------------------------------
+
+_receipt_builder = None
+
+
+def _get_receipt_builder():
+    """Lazily build the signer from TRYX402_RECEIPT_KEY (64 hex chars).
+
+    Returns None when unconfigured: paid responses stay unsigned but are
+    still served — reconciliation can rely on facilitator records.
+    """
+    global _receipt_builder
+    if _receipt_builder is not None:
+        return _receipt_builder
+    from tryx402.receipts import ReceiptBuilder
+    key_hex = os.environ.get("TRYX402_RECEIPT_KEY", "")
+    if not key_hex:
+        return None
+    try:
+        _receipt_builder = ReceiptBuilder(seed=bytes.fromhex(key_hex))
+    except Exception:
+        return None
+    return _receipt_builder
+
+
+def _build_receipt(*, endpoint: str, origin: str, price_cents: int,
+                   tx_hash, payer):
+    builder = _get_receipt_builder()
+    if builder is None:
+        return None
+    try:
+        return builder.build(
+            endpoint=endpoint,
+            origin=origin,
+            price_usd=price_cents / 100.0,
+            tx_hash=str(tx_hash) if tx_hash else None,
+            account=payer,
+        )
+    except Exception:
+        return None  # never break the paid path on receipt failure
