@@ -24,6 +24,19 @@ USDC_DECIMALS = 6
 DEFAULT_MAX_TIMEOUT_SECONDS = 60
 X402_VERSION = 1
 
+# Legacy alias -> CAIP-2 canonical names (facilitators register by CAIP-2)
+_NETWORK_ALIASES = {
+    "base": "eip155:8453",
+    "base-sepolia": "eip155:84532",
+    "solana": "solana:5eykt4UsFv8P8NJdTREpYogo7bWf6QEv",  # solana mainnet
+    "solana-devnet": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+}
+
+
+def canonical_network(network: str) -> str:
+    """Map a legacy network alias to its CAIP-2 canonical name."""
+    return _NETWORK_ALIASES.get(network or "", network or "")
+
 
 class FacadeConfigError(Exception):
     """Misconfigured facade parameters (missing pay-to, bad price...)."""
@@ -51,7 +64,7 @@ def build_accepts(
 
     entry = {
         "scheme": "exact",
-        "network": network or DEFAULT_NETWORK,
+        "network": canonical_network(network or DEFAULT_NETWORK),
         # v1 wire format: amounts are strings (SDK pydantic requirement)
         "maxAmountRequired": str(_atomic_units(int(price_cents))),
         "asset": asset or DEFAULT_ASSET,

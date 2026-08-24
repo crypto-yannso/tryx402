@@ -14,7 +14,7 @@ import os
 from typing import List
 
 from .registry import PriceRegistry
-from .x402_facade import DEFAULT_ASSET, DEFAULT_NETWORK, USDC_DECIMALS
+from .x402_facade import canonical_network, DEFAULT_ASSET, DEFAULT_NETWORK, USDC_DECIMALS
 
 __all__ = ["export_listing", "write_listing", "bazaar_feed",
            "SyndicationConfigError"]
