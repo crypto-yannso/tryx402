@@ -64,7 +64,7 @@ def build_accepts(
 
     entry = {
         "scheme": "exact",
-        "network": canonical_network(network or DEFAULT_NETWORK),
+        "network": network or DEFAULT_NETWORK,  # legacy name for v1 wire
         # v1 wire format: amounts are strings (SDK pydantic requirement)
         "maxAmountRequired": str(_atomic_units(int(price_cents))),
         "asset": asset or DEFAULT_ASSET,

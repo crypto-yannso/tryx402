@@ -43,8 +43,8 @@ class TestBuildAccepts:
             network="solana-devnet",
             asset="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         )
-        # legacy alias resolved to canonical CAIP-2 name
-        assert accepts[0]["network"] == "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+        # wire format keeps the configured (legacy) name
+        assert accepts[0]["network"] == "solana-devnet"
         assert accepts[0]["asset"] == "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
     def test_defaults_are_base_mainnet_usdc(self):
@@ -54,8 +54,7 @@ class TestBuildAccepts:
             price_cents=1,
             pay_to="0xabc0000000000000000000000000000000000001",
         )
-        # "base" alias canonicalized
-        assert accepts[0]["network"] == "eip155:8453"
+        assert accepts[0]["network"] == "base"
         # Base mainnet USDC contract
         assert accepts[0]["asset"] == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
