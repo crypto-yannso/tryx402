@@ -112,15 +112,21 @@ class Gateway:
         """Call through the hosted proxy (transparent commission layer).
 
         This is the revenue-generating path: every call incurs a commission
-        (default 10%) that is debited from the wallet. Requires an API key.
+        (default 10%) that is debited from the wallet.
+
+        No API key required: the SDK uses an anonymous customer ID.
+        The only human action needed is the Stripe card payment when balance is empty.
 
         Returns the proxy response including breakdown:
           - cost_cents, commission_cents, total_cents, new_balance_cents
         """
-        if not self.api_key:
-            raise RuntimeError("proxy_call() needs an API key: pass api_key= or set TRYX402_API_KEY")
         if price_usd is None:
             raise ValueError("price_usd is required for proxy_call (used to calculate commission)")
+        
+        # Get or create anonymous customer ID
+        from .anon_auth import get_or_create_customer_id
+        customer_id = get_or_create_customer_id()
+        
         proxy_url = f"{self.api_base}/v1/proxy/call"
         payload = json.dumps({
             "url": url,
@@ -131,7 +137,10 @@ class Gateway:
         req = urllib.request.Request(
             proxy_url,
             data=payload,
-            headers={"X-API-Key": self.api_key, "Content-Type": "application/json"},
+            headers={
+                "X-Customer-ID": customer_id,
+                "Content-Type": "application/json",
+            },
             method="POST",
         )
         try:
