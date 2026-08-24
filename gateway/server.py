@@ -425,6 +425,8 @@ def x402_tools(request: Request) -> X402ToolsResponse:
     """
     registry: PriceRegistry = request.app.state.price_registry
     pay_to = _facade_pay_to()
+    network = os.environ.get("TRYX402_NETWORK", "base")
+    asset = os.environ.get("TRYX402_ASSET", "")
     tools = []
     for origin, price_cents, allow_private in registry.items():
         if allow_private:
@@ -435,6 +437,8 @@ def x402_tools(request: Request) -> X402ToolsResponse:
                 origin=origin,
                 price_cents=price_cents,
                 pay_to=pay_to,
+                network=network,
+                asset=asset or None,
             )
         except FacadeConfigError:
             continue  # no settlement address configured -> nothing listable

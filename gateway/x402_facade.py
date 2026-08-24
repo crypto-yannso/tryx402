@@ -81,7 +81,9 @@ def build_accepts(
 
 
 def build_accepts_for_tool(resource_url: str, origin: str,
-                           price_cents: int, pay_to: str) -> list:
+                           price_cents: int, pay_to: str,
+                           network: str = DEFAULT_NETWORK,
+                           asset: str = DEFAULT_ASSET) -> list:
     """Build the x402 `accepts` payload for one catalogue tool.
 
     The resource is the shared /v1/x402/call endpoint; the origin being sold
@@ -93,6 +95,8 @@ def build_accepts_for_tool(resource_url: str, origin: str,
         description=f"tryx402 proxy for {origin}",
         price_cents=price_cents,
         pay_to=pay_to,
+        network=network,
+        asset=asset,
     )
 
 
