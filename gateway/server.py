@@ -495,6 +495,38 @@ def _uses_private_check(origin: str) -> bool:
     return _is_private_origin(origin)
 
 
+SITE_DIR = os.path.join(os.path.dirname(__file__), "site")
+
+
+def _site_page(request: Request, base: str):
+    """Serve a static site page with language negotiation (fr variant first)."""
+    from fastapi.responses import FileResponse
+    from fastapi import HTTPException
+
+    lang = (request.headers.get("accept-language") or "").lower()
+    fr_path = os.path.join(SITE_DIR, f"{base}.fr.html")
+    if lang.startswith("fr") and os.path.exists(fr_path):
+        return FileResponse(fr_path)
+    en_path = os.path.join(SITE_DIR, f"{base}.html")
+    if os.path.exists(en_path):
+        return FileResponse(en_path)
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get("/tools")
+@app.get("/tools/")
+def tools_page(request: Request):
+    """Visual web catalogue (linked from www.tryx402.app nav)."""
+    return _site_page(request, "tools")
+
+
+@app.get("/provider")
+@app.get("/provider/")
+def provider_page(request: Request):
+    """Provider portal page (linked from www.tryx402.app nav)."""
+    return _site_page(request, "provider")
+
+
 class X402CallRequest(BaseModel):
     origin: str
     path: str = "/"
