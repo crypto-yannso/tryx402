@@ -581,6 +581,26 @@ def x402_call(request: Request, req: X402CallRequest):
 # ASGI factory
 # ---------------------------------------------------------------------------
 
+@app.get("/api/v1/tools")
+@app.get("/api/v1/tools/")
+def tools_list(active_only: bool = True):
+    """Public catalogue API backing the /tools web page.
+
+    Reads the provider tools DB (same file the PriceRegistry seeds from)
+    and seeds verified tools on first access so the catalogue is never
+    empty on a fresh volume.
+    """
+    from .tools_db import init_db, list_tools, seed_verified_tools
+
+    db_path = os.environ.get("TRYX402_TOOLS_DB_PATH", "")
+    if not db_path:
+        return {"success": True, "count": 0, "tools": []}
+    init_db(db_path)
+    seed_verified_tools(db_path)
+    tools = list_tools(db_path, active_only)
+    return {"success": True, "count": len(tools), "tools": tools}
+
+
 def create_app() -> FastAPI:
     new_app = FastAPI(
         title="tryx402 hosted service",
