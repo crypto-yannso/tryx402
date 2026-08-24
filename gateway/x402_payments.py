@@ -89,7 +89,12 @@ def verify_with_facilitator(payment_payload: dict,
         with urllib.request.urlopen(req, timeout=15) as resp:
             verdict = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
-        raise FacilitatorError(f"facilitator HTTP {exc.code}")
+        try:
+            err_body = exc.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            err_body = ""
+        raise FacilitatorError(
+            f"facilitator HTTP {exc.code}: {err_body or exc.reason}")
     except Exception as exc:
         raise FacilitatorError(f"facilitator unreachable: {exc}")
     if not verdict.get("isValid"):

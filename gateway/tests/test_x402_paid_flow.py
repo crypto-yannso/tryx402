@@ -122,6 +122,46 @@ class TestX402PaidCall:
         assert resp.status_code == 402
         assert "insufficient_funds" in resp.text
 
+        def fake_urlopen(req, timeout=15):
+            if "/verify" in req.full_url:
+                return _FakeResponse({"isValid": False,
+                                      "invalidReason": "insufficient_funds"})
+            raise AssertionError("must not reach settle or upstream")
+
+        monkeypatch.setattr(xp.urllib.request, "urlopen", fake_urlopen)
+        app = self._register(create_app())
+        resp = self._post(TestClient(app))
+        assert resp.status_code == 402
+        assert "insufficient_funds" in resp.text
+
+    def test_facilitator_error_body_is_surfaced(self, monkeypatch):
+        # When the facilitator returns a non-200 (e.g. 500), its body must be
+        # surfaced in our error detail for debugging.
+        import gateway.x402_payments as xp
+
+        class _ErrResponse:
+            def read(self):
+                return b'{"error":"internal"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(req, timeout=15):
+            import urllib.error
+            raise urllib.error.HTTPError(req.full_url, 500,
+                                         "Internal Server Error", {}, _ErrResponse())
+
+        monkeypatch.setattr(xp.urllib.request, "urlopen", fake_urlopen)
+        app = self._register(create_app())
+        payload = {"origin": ORIGIN, "path": "/run", "method": "POST", "body": {}}
+        resp = TestClient(app).post("/v1/x402/call", json=payload,
+                                    headers={"X-PAYMENT": _payment_header()})
+        assert resp.status_code == 402
+        assert "internal" in resp.text or "500" in resp.text
+
     def test_malformed_payment_header_is_400(self):
         from gateway.server import create_app
         from starlette.testclient import TestClient
