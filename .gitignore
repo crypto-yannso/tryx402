@@ -5,3 +5,7 @@ __pycache__/
 .env
 dist/
 build/
+fly.toml
+dist/
+*.egg-info/
+build/
