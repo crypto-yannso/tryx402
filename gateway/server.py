@@ -55,7 +55,7 @@ def _authenticate(request: Request, app: "FastAPI") -> str:
     """
     customer_id = request.headers.get("X-Customer-ID", "").strip()
     token = request.headers.get("X-Session-Token", "").strip()
-    store: SessionStore = app.state.session_store
+    store: SessionStore = request.app.state.session_store
     if not customer_id or not token or not store.verify(customer_id, token):
         raise HTTPException(status_code=401, detail="Invalid or missing session credentials")
     return customer_id
@@ -70,8 +70,41 @@ app = FastAPI(
     description="Wallet, billing, and telemetry for tryx402.",
     version="0.4.0",
 )
-app.state.session_store = SessionStore()
 app.state.price_registry = PriceRegistry()
+
+
+def _wire_session_store(application: FastAPI) -> None:
+    """Attach a SQLite-backed SessionStore sharing the wallet DB."""
+    db_path = os.environ.get("TRYX402_DB_PATH", _DB_PATH)
+    application.state.session_store = SessionStore(db_path)
+
+
+_TOOLS_DB_SEEDED: set = set()
+
+
+def _wire_price_registry(application: FastAPI) -> None:
+    """Seed the price registry from the private tools DB when configured.
+
+    The registry object is shared module-wide; each tools DB is seeded once
+    per process (re-seeding is idempotent anyway).
+    """
+    try:
+        existing = application.state.price_registry
+    except AttributeError:
+        existing = None
+    if existing is None:
+        application.state.price_registry = PriceRegistry()
+    tools_db = os.environ.get("TRYX402_TOOLS_DB_PATH", "")
+    if tools_db and os.path.exists(tools_db) and tools_db not in _TOOLS_DB_SEEDED:
+        try:
+            application.state.price_registry.seed_from_tools_db(tools_db)
+            _TOOLS_DB_SEEDED.add(tools_db)
+        except Exception:
+            pass  # empty registry -> all proxy calls rejected as unknown
+
+
+_wire_session_store(app)
+_wire_price_registry(app)
 
 
 @app.get("/health")
@@ -95,15 +128,15 @@ class SessionResponse(BaseModel):
 
 
 @app.post("/v1/auth/session", response_model=SessionResponse)
-def create_session() -> SessionResponse:
+def create_session(request: Request) -> SessionResponse:
     """Mint an anonymous session: customer_id + bearer token bound together."""
-    customer_id, token = app.state.session_store.create()
+    customer_id, token = request.app.state.session_store.create()
     return SessionResponse(customer_id=customer_id, token=token)
 
 
 @app.get("/v1/wallet/balance", response_model=BalanceResponse)
 def get_balance(request: Request) -> BalanceResponse:
-    customer_id = _authenticate(request, app)
+    customer_id = _authenticate(request, request.app)
     wallet = _get_wallet(customer_id)
     balance = wallet.get_balance()
     return BalanceResponse(
@@ -124,7 +157,7 @@ class TransactionResponse(BaseModel):
 
 @app.get("/v1/wallet/transactions")
 def get_transactions(request: Request) -> Dict[str, object]:
-    customer_id = _authenticate(request, app)
+    customer_id = _authenticate(request, request.app)
     wallet = _get_wallet(customer_id)
     history = wallet.get_history()
     return {"customer_id": customer_id, "transactions": history}
@@ -271,11 +304,11 @@ def proxy_call(request: Request, req: ProxyRequest) -> ProxyResponse:
       - debit is atomic (no negative balance under concurrency)
       - wallet is refunded if the provider call fails
     """
-    customer_id = _authenticate(request, app)
+    customer_id = _authenticate(request, request.app)
     wallet = _get_wallet(customer_id)
 
     # Server-side pricing + SSRF allowlist
-    registry: PriceRegistry = app.state.price_registry
+    registry: PriceRegistry = request.app.state.price_registry
     try:
         price_cents = registry.lookup(req.url)
     except UnknownOriginError as exc:
@@ -350,7 +383,19 @@ def proxy_call(request: Request, req: ProxyRequest) -> ProxyResponse:
 # ---------------------------------------------------------------------------
 
 def create_app() -> FastAPI:
-    return app
+    new_app = FastAPI(
+        title="tryx402 hosted service",
+        description="Wallet, billing, and telemetry for tryx402.",
+        version="0.4.0",
+    )
+    # Persistent session store sharing the wallet DB — sessions survive
+    # restarts (Fly.io scale-to-zero).
+    _wire_session_store(new_app)
+    _wire_price_registry(new_app)
+    for route in app.routes:
+        if hasattr(route, "endpoint"):
+            new_app.routes.append(route)
+    return new_app
 
 
 # ---------------------------------------------------------------------------

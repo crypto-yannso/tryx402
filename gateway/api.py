@@ -147,7 +147,8 @@ class Gateway:
                              data["token"])
         return self._session
 
-    def proxy_call(self, url: str, body=None, *, method: str = "POST") -> dict:
+    def proxy_call(self, url: str, body=None, *, method: str = "POST",
+                   _retry: bool = False) -> dict:
         """Call through the hosted proxy (transparent commission layer).
 
         This is the revenue-generating path: every call incurs a commission
@@ -156,6 +157,10 @@ class Gateway:
         Auth: session token minted from /v1/auth/session, bound to the
         persistent anonymous customer ID. Price is set SERVER-side; there is
         deliberately no price_usd parameter anymore.
+
+        On a 401 with a cached token (e.g. server restarted and lost the
+        in-memory store), the session is re-minted and the call retried
+        exactly ONCE — no infinite loop. `_retry` is internal.
 
         Returns the proxy response including breakdown:
           - cost_cents, commission_cents, total_cents, new_balance_cents
@@ -182,6 +187,12 @@ class Gateway:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
+            if e.code == 401 and not _retry:
+                # Token invalidated server-side: mint a fresh session and
+                # retry exactly ONCE (no loop).
+                self._session = None
+                return self.proxy_call(url, body=body, method=method,
+                                       _retry=True)
             body_text = e.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"proxy_call failed: HTTP {e.code} {body_text[:200]}") from e
 

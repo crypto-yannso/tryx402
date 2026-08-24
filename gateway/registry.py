@@ -10,8 +10,18 @@ from __future__ import annotations
 
 import ipaddress
 import threading
-from typing import Dict, Optional
+from typing import Dict
 from urllib.parse import urlparse
+
+__all__ = ["PriceRegistry", "UnknownOriginError", "PrivateOriginError",
+           "seed_from_tools_db"]
+
+
+def seed_from_tools_db(db_path: str, active_only: bool = True) -> "PriceRegistry":
+    """Build a PriceRegistry pre-loaded from the private repo's tools DB."""
+    reg = PriceRegistry()
+    reg.seed_from_tools_db(db_path, active_only=active_only)
+    return reg
 
 
 class UnknownOriginError(Exception):
@@ -55,6 +65,30 @@ class PriceRegistry:
             self._prices[origin] = int(price_cents)
             if allow_private:
                 self._allow_private.add(origin)
+
+    def seed_from_tools_db(self, db_path: str, active_only: bool = True) -> int:
+        """Load origins/prices from the private repo's tools table.
+
+        Returns the number of origins registered. Inactive tools are
+        skipped (they have not passed a paid health-check).
+        """
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        try:
+            query = "SELECT origin, price_usd, is_active FROM tools"
+            rows = conn.execute(query).fetchall()
+        finally:
+            conn.close()
+        count = 0
+        for origin, price_usd, is_active in rows:
+            if active_only and not is_active:
+                continue
+            if not origin or price_usd is None:
+                continue
+            self.register(origin=origin,
+                          price_cents=max(1, round(float(price_usd) * 100)))
+            count += 1
+        return count
 
     def lookup(self, url: str) -> int:
         """Return the server-set price in cents for a full URL.
