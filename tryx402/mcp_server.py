@@ -58,6 +58,22 @@ TOOLS = [
                                     "method": {"type": "string"},
                                     "price": {"type": "number"}},
                      "required": ["url"]}},
+    {"name": "gateway_plan",
+     "description": "Price an entire multi-call workflow BEFORE spending. Free. "
+                    "Pass steps: [{url, body?, price?}]. Returns total, per-step "
+                    "costs, unknown-price flags, and whether it fits the budget.",
+     "inputSchema": {"type": "object",
+                     "properties": {"steps": {"type": "array",
+                                              "items": {"type": "object"}}},
+                     "required": ["steps"]}},
+    {"name": "gateway_receipt",
+     "description": "Sign a verifiable receipt (Ed25519) for a paid call. Free.",
+     "inputSchema": {"type": "object",
+                     "properties": {"endpoint": {"type": "string"},
+                                    "origin": {"type": "string"},
+                                    "price_usd": {"type": "number"},
+                                    "tx_hash": {"type": "string"}},
+                     "required": ["endpoint", "origin", "price_usd"]}},
     {"name": "gateway_spent",
      "description": "How much this session has spent (USD), total and by origin.",
      "inputSchema": {"type": "object", "properties": {}}},
@@ -74,6 +90,18 @@ def _handle_tool(name, args):
         data = _GW.call(args["url"], body=args.get("body"),
                         method=args.get("method", "POST"), price=args.get("price"))
         return json.dumps({"spent_usd": _GW.spent_usd, "data": data},
+                          ensure_ascii=False, indent=2)
+    if name == "gateway_plan":
+        from .planner import estimate_plan
+        est = estimate_plan(args.get("steps") or [],
+                            spent_usd=_GW.spent_usd,
+                            max_budget_usd=_GW._client.max_budget_usd)
+        return json.dumps(est.to_dict(), ensure_ascii=False, indent=2)
+    if name == "gateway_receipt":
+        r = _GW.receipt(args["endpoint"], args["origin"],
+                        args["price_usd"], tx_hash=args.get("tx_hash"))
+        return json.dumps({"receipt": r, "verify_hint": "verify with the "
+                           "pubkey embedded in the receipt (offline)"},
                           ensure_ascii=False, indent=2)
     if name == "gateway_spent":
         return json.dumps({"total_usd": _GW.spent_usd, "by_origin": _GW.spend_by_origin()},
