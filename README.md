@@ -55,6 +55,8 @@ and cost ledger across every call.
 
 ## Layout
 
+Open-source SDK. The hosted backend (billing API, verified-tools catalogue, provider portal) is closed — see https://www.tryx402.app
+
 ```
 gateway/
 ├── client.py    # SafeClient: any endpoint + budget + idempotency + timeout + ledger
