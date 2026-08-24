@@ -451,6 +451,45 @@ def x402_tools(request: Request) -> X402ToolsResponse:
     return X402ToolsResponse(x402Version=1, tools=tools)
 
 
+@app.get("/v1/x402/listing")
+def x402_listing(request: Request):
+    """Syndication: registry as a generic x402 resources document.
+
+    Public, no-auth. Aggregators and discovery crawlers consume this to
+    index every tryx402-wrapped endpoint. Private origins are excluded;
+    exported prices are exactly what /v1/x402/call will charge.
+    """
+    from .syndication import export_listing, SyndicationConfigError
+
+    registry: PriceRegistry = request.app.state.price_registry
+    try:
+        doc = export_listing(
+            registry,
+            base_url=_facade_resource_url(request, ""),
+            pay_to=_facade_pay_to(),
+        )
+    except SyndicationConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JSONResponse(doc)
+
+
+@app.get("/v1/x402/bazaar.json")
+def x402_bazaar_feed(request: Request):
+    """Syndication: Bazaar-style flat feed for aggregator indexing."""
+    from .syndication import bazaar_feed, SyndicationConfigError
+
+    registry: PriceRegistry = request.app.state.price_registry
+    try:
+        feed = bazaar_feed(
+            registry,
+            base_url=_facade_resource_url(request, ""),
+            pay_to=_facade_pay_to(),
+        )
+    except SyndicationConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JSONResponse(feed)
+
+
 def _uses_private_check(origin: str) -> bool:
     from gateway.registry import _is_private_origin
     return _is_private_origin(origin)

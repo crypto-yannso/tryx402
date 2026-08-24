@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0 — x402 facade + trust layer (server)
+
+Everything a third-party x402 agent needs to pay tryx402-wrapped endpoints
+directly on the x402 rail, plus the auditability to prove it afterwards.
+
+- **Public x402 facade**: spec-conformant 402 paywall (`/v1/x402/call`),
+  facilitator verify/settle, exactly-no-retry upstream discipline,
+  reconciliation flag on post-payment failures.
+- **Crawlable catalog** (`/v1/x402/tools`): every wrapped origin with its
+  server-set price as an x402 `accepts` entry. v1 wire format: amounts are
+  strings (official SDK pydantic requirement — caught by a live client).
+- **Syndication endpoints** (`/v1/x402/listing`, `/v1/x402/bazaar.json`):
+  generic x402 resources document + Bazaar-style flat feed so aggregators
+  (Onyx Bazaar, gold-402, x402scan) index tryx402 without bespoke
+  integration. Private origins never exported; exported prices are exactly
+  what the facade charges.
+- **Signed Ed25519 receipts** on paid responses (`X-RECEIPT`), validated
+  against RFC 8032 test vectors, verifiable offline.
+- **Replay protection**: duplicate payments answered with 409
+  `duplicate_payment` (bounded in-process cache).
+- **Session auth on the hosted API** (BREAKING for 0.3.x SDK clients):
+  `/v1/auth/session` mints X-Customer-ID + X-Session-Token; server-side
+  pricing via PriceRegistry seeded from the tools DB; atomic SQLite debit;
+  idempotent Stripe webhook; automatic refund on provider failure.
+- Fly.io wiring: `TRYX402_TOOLS_DB_PATH` on a persistent volume; sessions
+  survive scale-to-zero.
+
 ## 0.3.0 — competitive-parity release (branch `feat/competitive-parity`)
 
 Patterns adopted from open-source peers (all MIT/Apache; no code copied, patterns reimplemented):
