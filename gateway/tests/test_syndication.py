@@ -26,7 +26,9 @@ class TestSyndicationExport:
         # private origin never exported
         assert "http://localhost:9" not in resources
         apify = resources["https://api.apify.com"]
-        assert apify["maxAmountRequired"] == 50_000  # atomic USDC int
+        # v1 wire format: amounts are strings (official SDK pydantic requirement)
+        assert apify["maxAmountRequired"] == "50000"
+        assert isinstance(apify["maxAmountRequired"], str)
         assert apify["payTo"].startswith("0x")
 
     def test_export_is_json_serializable_and_stable_ordered(self):
@@ -61,4 +63,4 @@ class TestSyndicationExport:
         for field in ("id", "endpoint", "method", "price", "scheme",
                       "network", "payTo"):
             assert field in item, f"missing {field}"
-        assert item["price"] > 0
+        assert int(item["price"]) > 0  # string amounts (v1 wire format)

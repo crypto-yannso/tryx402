@@ -24,8 +24,9 @@ class SyndicationConfigError(Exception):
     """Missing settlement address or bad base URL."""
 
 
-def _atomic_units(price_cents: int) -> int:
-    return int(price_cents) * (10 ** USDC_DECIMALS) // 100
+def _atomic_units(price_cents: int) -> str:
+    # v1 wire format: amounts are strings (official SDK pydantic requirement)
+    return str(int(price_cents) * (10 ** USDC_DECIMALS) // 100)
 
 
 def export_listing(registry: PriceRegistry, base_url: str,
