@@ -6,9 +6,9 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY gateway/ gateway/
 COPY tryx402/ tryx402/
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e ".[server]"
 
 # Default entrypoint is a shell so users pick `gateway ...` or
 # `python3 -m gateway.mcp_server` with their own budget env:
 #   docker run -e GATEWAY_MAX_BUDGET_USD=1.00 tryx402 gateway --help
-CMD ["bash"]
+CMD ["python3", "-m", "gateway.server"]
