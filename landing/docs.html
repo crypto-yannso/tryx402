@@ -4,38 +4,55 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quickstart — tryx402</title>
+<meta name="description" content="tryx402 quickstart: fund an account, call any x402 endpoint through the gateway, get billed per real call at your margin.">
 <style>
   :root { --bg:#0b0e14; --fg:#e6e9f0; --dim:#8b93a7; --acc:#5b8cff; --card:#131722; --line:#232a3a; }
   * { box-sizing:border-box; margin:0; }
   body { background:var(--bg); color:var(--fg); font:16px/1.6 -apple-system,"Segoe UI",sans-serif; }
-  .wrap { max-width:820px; margin:0 auto; padding:64px 24px; }
-  h1 { font-size:34px; margin-bottom:8px; letter-spacing:-0.02em; }
-  h2 { font-size:20px; margin:40px 0 10px; color:var(--acc); }
-  p, li { color:var(--fg); }
-  .dim { color:var(--dim); }
-  pre { background:var(--card); border:1px solid var(--line); border-radius:10px;
-        padding:16px; overflow-x:auto; margin:14px 0; font-family:ui-monospace,Menlo,monospace;
-        font-size:13.5px; color:#cdd6f4; }
-  code.inline { font-family:ui-monospace,Menlo,monospace; background:var(--card);
-        border:1px solid var(--line); padding:1px 6px; border-radius:6px; font-size:13.5px; }
-  table { border-collapse:collapse; width:100%; margin:14px 0; }
-  td, th { border:1px solid var(--line); padding:8px 12px; text-align:left; font-size:14px; }
-  th { color:var(--dim); font-weight:600; }
+  .wrap { max-width:880px; margin:0 auto; padding:64px 24px; }
+  .tag { color:var(--acc); font-weight:600; letter-spacing:.08em; text-transform:uppercase; font-size:13px; }
+  h1 { font-size:clamp(30px,5vw,44px); line-height:1.15; margin:16px 0 12px; letter-spacing:-0.02em; }
+  h2 { font-size:22px; margin:48px 0 12px; }
+  p.lead { font-size:19px; color:var(--dim); max-width:640px; }
+  .step { display:flex; gap:16px; align-items:flex-start; margin-top:8px; }
+  .step .num { flex:none; width:34px; height:34px; border-radius:10px; background:var(--acc); color:#fff;
+               font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:2px; }
+  code, pre { font-family:ui-monospace,Menlo,monospace; }
+  code { font-size:13.5px; background:var(--card); border:1px solid var(--line); padding:1px 6px; border-radius:6px; }
+  pre { font-size:14px; background:var(--card); border:1px solid var(--line); border-radius:10px;
+        padding:18px; overflow-x:auto; margin:16px 0; color:#cdd6f4; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin-top:24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
+  .card b { display:block; margin-bottom:6px; }
+  .card span { color:var(--dim); font-size:14px; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; background:var(--card);
+          border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  td, th { padding:10px 14px; text-align:left; font-size:14px; border-bottom:1px solid var(--line); }
+  tr:last-child td { border-bottom:none; }
+  th { color:var(--dim); font-weight:600; font-size:13px; letter-spacing:.04em; text-transform:uppercase; }
+  td:first-child { white-space:nowrap; font-weight:600; }
   a { color:var(--acc); }
-  .foot { margin-top:64px; color:var(--dim); font-size:14px; border-top:1px solid var(--line); padding-top:20px; }
+  .foot { margin-top:72px; color:var(--dim); font-size:14px; border-top:1px solid var(--line); padding-top:24px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>tryx402 quickstart</h1>
-  <p class="dim">Fund an account, call any x402 endpoint through the gateway,
+  <div class="tag">tryx402.app · docs</div>
+  <h1>Quickstart</h1>
+  <p class="lead">Fund an account, call any x402 endpoint through the gateway,
   get billed per real call at your margin. That's the whole product.</p>
 
-  <h2>1 · Get an API key</h2>
-  <p>Ask us (pilot phase) — you receive one key like <code class="inline">gw_…</code>
+  <div class="grid">
+    <div class="card"><b>Hard budget caps</b><span>The cap blocks before the paid call, not after. A dry balance fails loudly with 402.</span></div>
+    <div class="card"><b>Never double-charged</b><span>A timed-out call is never retried automatically. A possibly-paid call is never paid twice.</span></div>
+  </div>
+
+  <h2><div class="step"><div class="num">1</div><span>Install &amp; get an API key</span></div></h2>
+<pre>pip install tryx402</pre>
+  <p>Then ask us (pilot phase) for a key like <code>gw_…</code>
   mapped to your funded account. Keep it secret; it IS your balance.</p>
 
-  <h2>2 · Call any endpoint</h2>
+  <h2><div class="step"><div class="num">2</div><span>Call any endpoint</span></div></h2>
 <pre>curl -X POST https://tryx402.app/v1/call \
   -H "X-API-Key: gw_YOUR_KEY" \
   -H "Content-Type: application/json" \
@@ -44,7 +61,7 @@
     "body": {"domain": "acme.com"},
     "price": 0.04
   }'</pre>
-  <p><code class="inline">price</code> is the expected upstream cost in USD.
+  <p><code>price</code> is the expected upstream cost in USD.
   It feeds the budget check and your billing pre-auth. The response:</p>
 <pre>{
   "data":    { "...endpoint payload..." },
@@ -52,7 +69,7 @@
   "account": "your-account"
 }</pre>
 
-  <h2>3 · Check balance</h2>
+  <h2><div class="step"><div class="num">3</div><span>Check balance</span></div></h2>
 <pre>curl https://tryx402.app/v1/balance -H "X-API-Key: gw_YOUR_KEY"</pre>
 
   <h2>How billing works</h2>
@@ -72,7 +89,10 @@
     <tr><td>502</td><td>Upstream endpoint failed after payment attempt — contact support with the request id</td></tr>
   </table>
 
-  <div class="foot"><a href="/">← tryx402.app</a></div>
+  <div class="foot">
+    tryx402 — the billing gateway over AgentCash / x402 ·
+    <a href="/">Home</a> · <a href="/tools">Catalogue</a> · <a href="/provider">Provider portal</a>
+  </div>
 </div>
 </body>
 </html>

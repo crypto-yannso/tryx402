@@ -219,6 +219,25 @@ def test_api_keys():
     print("  ok  api keys: hashed at rest, round-trip auth, forged/missing rejected")
 
 
+def test_rate_limiter():
+    from gateway.rate_limit import InMemoryRateLimiter
+    
+    rl = InMemoryRateLimiter()
+    # 3 requêtes max par fenêtre de 1 seconde
+    assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
+    assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
+    assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
+    assert rl.check("user:1", max_requests=3, window_seconds=1.0) is False  # 4e rejetée
+    
+    # clé différente : isolée
+    assert rl.check("user:2", max_requests=3, window_seconds=1.0) is True
+    
+    # reset
+    rl.reset()
+    assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
+    print("  ok  rate limiter: sliding window, per-key isolation, block threshold & reset")
+
+
 if __name__ == "__main__":
     test_helpers()
     test_call_and_ledger()
@@ -231,4 +250,5 @@ if __name__ == "__main__":
     test_webhook_idempotency()
     test_billing_loop()
     test_api_keys()
+    test_rate_limiter()
     print("\nALL GATEWAY TESTS PASSED")

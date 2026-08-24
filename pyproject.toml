@@ -6,12 +6,29 @@ build-backend = "setuptools.build_meta"
 name = "tryx402"
 version = "0.1.0"
 description = "The OpenRouter for agent payments: budget router, idempotency, cost ledger, and multi-currency billing over x402."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Yann Ebeke", email = "yann@artaifact.com" }]
 requires-python = ">=3.9"
+keywords = ["x402", "ai-agents", "payments", "usdc", "billing", "budget"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Libraries",
+]
 dependencies = []
+
+[project.optional-dependencies]
+native = ["httpx>=0.24"]
+server = ["fastapi", "uvicorn", "pydantic", "stripe", "httpx>=0.24"]
+
+[project.urls]
+Homepage = "https://tryx402.app"
 
 [project.scripts]
 tryx402 = "tryx402.cli:main"
-gateway = "gateway.cli:main"
 
 [tool.setuptools]
-packages = ["tryx402", "gateway", "server"]
+packages = ["tryx402", "gateway"]

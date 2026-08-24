@@ -28,7 +28,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="tag">tryx402.app</div>
+  <div class="tag">Parental controls for AI spending · built on x402</div>
   <h1>Stripe for x402.<br>Sell paid APIs to AI agents.</h1>
   <p class="lead">Your customers fund an account in euros. Their agents call x402
   endpoints through tryx402. Every call settles in USDC upstream, gets billed to
@@ -46,6 +46,19 @@
     each key maps to one funded account. Multi-tenant from day one.</span></div>
   </div>
 
+  <h2>Now live: Apify scraping, pay per call</h2>
+  <p>The catalogue now includes Apify Store actors as plain pay-per-call endpoints.
+  Web crawling, Google Maps extraction, social scraping: your agent sends one POST
+  with a JSON input, gets the dataset items back, and pays $0.05 from its balance.
+  No Apify account, no actor wiring, no browser farm to babysit.</p>
+<pre>curl -X POST https://tryx402.app/api/v1/apify/run \
+  -H "Content-Type: application/json" -H "X-API-Key: $KEY" \
+  -d '{"actor": "apify/website-content-crawler",
+       "run_input": {"startUrls": [{"url": "https://example.com"}]}}'</pre>
+  <p>Costs are clamped server-side (crawl depth, result count, memory), so a
+  runaway agent cannot turn a $0.05 call into a $2 compute bill. Every run
+  reports its real Apify cost back to the ledger.</p>
+
   <h2>Three lines and your agent is paying for data</h2>
 <pre>from gateway import Gateway
 
@@ -60,8 +73,9 @@ data = gw.call("https://provider.example/api/email/work",
   <a class="cta" href="/docs">Read the quickstart</a>
 
   <div class="foot">
-    tryx402 — the billing gateway over AgentCash / x402 ·
-    <a href="/docs">Docs</a> · open core on GitHub
+  tryx402 — the billing gateway over AgentCash / x402 ·
+  <code>pip install tryx402</code> ·
+  <a href="/">Home</a> · <a href="/tools">Catalogue</a> · <a href="/provider">Provider portal</a>
   </div>
 </div>
 </body>

@@ -57,11 +57,23 @@ def init_db(db_path: str):
     """)
     conn.commit()
     conn.close()
+    _migrate_db(db_path)
+
+def _migrate_db(db_path: str):
+    """Migrations légères : ALTER TABLE idempotents pour les bases existantes."""
+    conn = get_db(db_path)
+    cursor = conn.cursor()
+    existing_cols = {r[1] for r in cursor.execute("PRAGMA table_info(tools)")}
+    if "memory_mbytes" not in existing_cols:
+        cursor.execute("ALTER TABLE tools ADD COLUMN memory_mbytes INTEGER")
+    conn.commit()
+    conn.close()
 
 def register_tool(db_path: str, provider_name: str, provider_email: str, slug: str,
                   origin: str, endpoint: str, method: str,
                   description: str, price_usd: float,
-                  payout_eur_per_call: float) -> Dict[str, Any]:
+                  payout_eur_per_call: float,
+                  memory_mbytes: Optional[int] = None) -> Dict[str, Any]:
     conn = get_db(db_path)
     cursor = conn.cursor()
     tool_id = f"tool_{secrets.token_hex(6)}"
@@ -69,10 +81,12 @@ def register_tool(db_path: str, provider_name: str, provider_email: str, slug: s
     try:
         cursor.execute("""
             INSERT INTO tools (id, provider_name, provider_email, slug, origin,
-                endpoint, method, description, price_usd, payout_eur_per_call, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                endpoint, method, description, price_usd, payout_eur_per_call,
+                memory_mbytes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (tool_id, provider_name, provider_email, slug, origin, endpoint,
-              method.upper(), description, price_usd, payout_eur_per_call, now))
+              method.upper(), description, price_usd, payout_eur_per_call,
+              memory_mbytes, now))
         conn.commit()
         return {"id": tool_id, "slug": slug, "status": "pending_verification"}
     except sqlite3.IntegrityError:
@@ -117,6 +131,11 @@ def get_tool_by_slug(db_path: str, slug: str) -> Optional[Dict[str, Any]]:
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+def get_tool_memory_mbytes(db_path: str, slug: str) -> Optional[int]:
+    """Mémoire recommandée du tool (Apify), None = défaut global."""
+    tool = get_tool_by_slug(db_path, slug)
+    return tool.get("memory_mbytes") if tool else None
 
 def record_payout(db_path: str, tool_id: str, provider_name: str, amount_eur: float, tx_id: Optional[str]):
     conn = get_db(db_path)
