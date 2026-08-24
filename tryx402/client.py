@@ -35,7 +35,8 @@ class SafeClient:
     def __init__(self, binary=None,
                  default_max_amount: float = 1.0, default_timeout_ms: int = 150000,
                  max_budget_usd: float | None = None, idempotent: bool = True,
-                 max_retries: int = 0, ledger: Ledger | None = None, runner=None):
+                 max_retries: int = 0, ledger: Ledger | None = None, runner=None,
+                 on_paid=None):
         if binary:
             self.cmd = binary.split()
         elif shutil.which("agentcash"):
@@ -49,6 +50,7 @@ class SafeClient:
         self.max_retries = max_retries
         self.ledger = ledger or Ledger()
         self.runner = runner or _default_runner
+        self.on_paid = on_paid          # optional callback(account_id, paid_usd) — hosted mode wires this to its own billing
         self._cache = {}
 
     def call(self, url: str, *, method: str = "POST", body: dict | None = None,
@@ -80,6 +82,16 @@ class SafeClient:
         data, paid_price, tx = self._run(args, endpoint, price, timeout_ms)
         self.ledger.record(CostEvent(endpoint, origin, paid_price, paid=True,
                                      tx_hash=tx, account=account))
+        # Optional hosted-billing hook on the REAL upstream price
+        # (never undercharge: bill on actual paid_price, not expected).
+        if self.on_paid and account and paid_price > 0:
+            try:
+                self.on_paid(account, paid_price)
+            except Exception:
+                self.ledger.record(CostEvent(endpoint, origin, 0.0, paid=False,
+                                             tx_hash="billing-failed:" + str(tx),
+                                             account=account))
+                raise
         if self.idempotent:
             self._cache[idem] = data
         return data

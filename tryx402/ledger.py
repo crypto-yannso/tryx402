@@ -20,9 +20,16 @@ class Ledger:
     # Provider cost only — the rail settles in USDC (~USD). Customer-currency
     # conversion lives in the billing layer (accounts.py), not here.
     events: list = field(default_factory=list)
+    seen_events: set = field(default_factory=set)   # processed webhook event ids
 
     def record(self, ev: CostEvent) -> None:
         self.events.append(ev)
+
+    def seen(self, event_id: str) -> bool:
+        return event_id in self.seen_events
+
+    def mark(self, event_id: str) -> None:
+        self.seen_events.add(event_id)
 
     @property
     def total_usd(self) -> float:

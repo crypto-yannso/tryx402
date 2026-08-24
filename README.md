@@ -9,16 +9,21 @@ we learned we need the hard way:
 - **hard budget caps** — stop before overspending
 - **idempotency** — never pay twice for the same call (the $0.83 double-charge lesson)
 - **cost ledger** — USD spent, reconciled, grouped by origin / account
-- **multi-currency billing + margin** — end users pay in THEIR currency (EUR, USD, GBP, JPY…), never touch the wallet
 
-## Two faces, one engine
+## Open core, closed engine
 
-| Face | Who | Module |
+This repo is the **open-source SDK**: the safe caller, budget guard, idempotency,
+ledger, CLI and MCP server. MIT licensed.
+
+The **hosted service** (https://www.tryx402.app) is the commercial engine:
+multi-currency fiat billing, margins, FX, Stripe funding, the verified-tools
+catalogue and the provider portal. Pricing is decided **server-side** via
+`/v1/quote` — a client-side margin is a margin nobody pays.
+
+| Face | Who | Where |
 |---|---|---|
-| **Power-tool** (option 3) | you / an agent drive the whole catalogue safely | `gateway.cli`, `gateway.client` |
-| **Fiat gateway** (option 2) | end users pay in their own currency, you resell x402 with a margin | `gateway.accounts` (Stripe stubbed) |
-
-Prospecting (`../prospect_relay`) is just **one application** on top of this core.
+| **Power-tool** | you / an agent drive paid endpoints safely | this SDK (`gateway.cli`, `gateway.client`) |
+| **Fiat gateway** | end users pay in their currency, you resell x402 with margin | hosted service (closed) |
 
 ## Embed it (for agents)
 
@@ -32,7 +37,7 @@ data = gw.call("https://stable-deepline.dev/api/email/validate",
 print(gw.spent_usd)                            # 0.03
 ```
 
-**Terminal — one command** (like `agentcash`), after `pip install -e .`:
+**Terminal — one command** (like `agentcash`), after `pip install tryx402`:
 
 ```bash
 gateway call https://stable-deepline.dev/api/email/validate \
@@ -55,16 +60,14 @@ and cost ledger across every call.
 
 ## Layout
 
-Open-source SDK. The hosted backend (billing API, verified-tools catalogue, provider portal) is closed — see https://www.tryx402.app
-
 ```
 gateway/
 ├── client.py    # SafeClient: any endpoint + budget + idempotency + timeout + ledger
-├── ledger.py    # cost events, USD/EUR totals, by-origin / by-account
+├── ledger.py    # cost events, USD/EUR totals, by-origin
 ├── catalog.py   # search(intent) / discover(origin) over the AgentCash catalogue
-├── accounts.py  # per-currency balances (integer minor units), margin, authorize/charge — Stripe stub
-├── cli.py       # power-tool CLI (drives both faces)
-└── tests/       # offline: budget, idempotency, EUR billing (no spend)
+├── api.py       # Gateway facade: one-import embed + quote() for server pricing
+├── cli.py       # search / discover / call / quote
+└── tests/       # offline: budget, idempotency, on_paid hook, quote client
 ```
 
 ## Use
@@ -83,22 +86,16 @@ python3 -m gateway.cli call https://stable-deepline.dev/api/email/validate \
   --body '{"email":"foo@bar.com"}' --price 0.03 --max-budget 0.10
 ```
 
-Run it as a **fiat gateway** — the caller pays in their own currency, never sees the wallet:
+Ask the hosted service what a call costs your account (server-side FX + margin):
 
 ```bash
-python3 -m gateway.cli account create acme --currency GBP --margin 0.30
-python3 -m gateway.cli account fund acme --amount 20            # 20 GBP — Stripe stub
-python3 -m gateway.cli call https://stable-deepline.dev/api/email/validate \
-  --body '{"email":"foo@bar.com"}' --price 0.03 --account acme
-#  -> billed 0.04 GBP to acme (margin 30%, balance 19.96 GBP)
+export TRYX402_API_KEY="gw_..."        # from https://www.tryx402.app
+gateway quote 0.04
+#  -> {"account":"acme","currency":"EUR","charge_minor":5,"charge":"0.05 EUR"}
 ```
 
-Provider cost stays in USD (the rail settles in USDC); each account is billed in
-its own currency via `FxRates` (a stub table today — wire a live FX feed in prod).
-Non-2-decimal currencies (JPY, KWD…) are handled.
+## What's real vs hosted
 
-## What's real vs stubbed
-
-- **Real:** the safe caller, budget cap, idempotency, cost ledger, multi-currency/margin math (integer minor units), catalogue search/discover.
-- **Stubbed:** funding an account (`fund_eur`) stands in for the **Stripe webhook**. Wire real Stripe → call `fund_eur` on `checkout.session.completed`. Everything downstream already works.
+- **Real (this SDK):** the safe caller, budget cap, idempotency, cost ledger, catalogue search/discover.
+- **Hosted:** accounts, balances, fiat funding (Stripe), FX conversion, margins — all decided by the server; the SDK only asks with `quote()`.
 - **Deliberately off:** auto-retry of paid calls (default `max_retries=0`) — retrying a possibly-paid call is what double-charged us; opt in only if the server honors the `Idempotency-Key` header.

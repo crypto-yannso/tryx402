@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tryx402"
-version = "0.1.1"
+version = "0.2.0"
 description = "The OpenRouter for agent payments: budget router, idempotency, cost ledger, and multi-currency billing over x402."
 readme = "README.md"
 license = { text = "MIT" }

@@ -25,11 +25,11 @@ import sys
 from .api import Gateway
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "tryx402-gateway", "version": "0.1.0"}
+SERVER_INFO = {"name": "tryx402", "version": "0.1.0"}
 
 
 def _budget():
-    v = os.environ.get("TRYX402_MAX_BUDGET_USD") or os.environ.get("GATEWAY_MAX_BUDGET_USD")
+    v = os.environ.get("GATEWAY_MAX_BUDGET_USD")
     return float(v) if v else None
 
 

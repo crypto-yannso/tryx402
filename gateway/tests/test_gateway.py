@@ -3,9 +3,6 @@ is injected/faked). Run: python3 gateway/tests/test_gateway.py
 """
 from __future__ import annotations
 
-from gateway.accounts import (
-    AccountStore, FxRates, InsufficientBalance, format_amount, price_minor,
-)
 from gateway.client import (
     BudgetExceeded, SafeClient, _endpoint_of, _idempotency_key, _origin_of,
 )
@@ -64,31 +61,6 @@ def test_budget_cap():
     print("  ok  budget cap blocks before overspending")
 
 
-def test_billing_multicurrency():
-    rates = FxRates()
-    # same $0.04 upstream, 30% margin, billed in each customer's own currency:
-    assert price_minor(0.04, "EUR", rates, 0.30) == 5    # 0.04*0.92*1.3 = 0.04784 -> 5c
-    assert price_minor(0.04, "USD", rates, 0.30) == 6    # 0.04*1.00*1.3 = 0.052   -> 6c
-    assert price_minor(0.04, "JPY", rates, 0.30) == 8    # 0.04*150*1.3 = 7.8 yen  -> 8 (0 decimals)
-
-    store = AccountStore(path="/tmp/gw_test_none.json")
-    store.create("acme", currency="GBP", margin=0.30)
-    store.fund("acme", 20)                                # 20.00 GBP -> 2000 minor
-    assert store.accounts["acme"].balance_minor == 2000
-    charge = store.authorize("acme", 0.04, rates)        # GBP 0.04*0.79*1.3=0.041 -> 5p
-    store.charge("acme", charge)
-    assert store.accounts["acme"].balance_minor == 2000 - charge
-    assert format_amount(store.accounts["acme"].balance_minor, "GBP") == "19.95 GBP"
-
-    store.accounts["acme"].balance_minor = 2             # now too low
-    try:
-        store.authorize("acme", 0.04, rates)
-        assert False, "should have raised InsufficientBalance"
-    except InsufficientBalance:
-        pass
-    print("  ok  billing: EUR/USD/JPY/GBP minor units, margin, insufficient-balance guard")
-
-
 def test_facade():
     from gateway import Gateway
     out = '{"data":{"status":"valid"}}\n{"price":"$0.03","payment":{"transactionHash":"0xdef"}}'
@@ -102,136 +74,83 @@ def test_facade():
     print("  ok  Gateway facade: one-import call + spend tracking")
 
 
-def test_stripe_webhook():
-    import hashlib
-    import hmac
-    import json as _json
-    import time
-
-    from gateway.accounts import AccountStore
-    from gateway.stripe_integration import WebhookError, handle_event, verify_webhook
-
-    secret = "whsec_test"
-    event = {"type": "checkout.session.completed", "data": {"object": {
-        "metadata": {"account_id": "acme"}, "amount_total": 2000, "currency": "eur"}}}
-    payload = _json.dumps(event).encode()
-    t = str(int(time.time()))
-    good = hmac.new(secret.encode(), t.encode() + b"." + payload, hashlib.sha256).hexdigest()
-
-    ev = verify_webhook(payload, f"t={t},v1={good}", secret)     # valid signature
-    assert ev["type"] == "checkout.session.completed"
-    try:
-        verify_webhook(payload, f"t={t},v1=deadbeef", secret)    # forged signature
-        assert False, "should have raised WebhookError"
-    except WebhookError:
-        pass
-
-    store = AccountStore(path="/tmp/gw_stripe_test.json")
-    store.create("acme", currency="EUR")
-    handle_event(ev, store, save=False)                          # 2000c = 20.00 EUR credited
-    assert store.accounts["acme"].balance_minor == 2000
-    print("  ok  stripe webhook: HMAC verify + forgery reject + credit on checkout.completed")
-
-
-def test_currency_mismatch_credit():
-    from gateway.accounts import AccountStore, FxRates
-
-    rates = FxRates()
-    store = AccountStore(path="/tmp/gw_fx_test.json")
-    # Existing USD account receives an EUR payment: converted EUR -> USD -> (acct) USD
-    store.create("acme", currency="USD")
-    try:
-        store.credit_minor("acme", 2000, "EUR")            # strict: no rates -> reject
-        raise AssertionError("should have raised ValueError")
-    except ValueError:
-        pass
-    acct = store.credit_minor("acme", 2000, "EUR", rates=rates)
-    # 20.00 EUR = 20/0.92 USD = 21.74 USD -> 2174 minor, ceil-rounded
-    assert acct.balance_minor == 2174
-    assert acct.currency == "USD"
-    # New account: created denominated in the PAYMENT's currency
-    acct2 = store.credit_minor("novo", 1500, "JPY", rates=rates)
-    assert acct2.currency == "JPY" and acct2.balance_minor == 1500
-    print("  ok  currency mismatch: strict reject without rates, FX convert with rates, auto-denominate new accounts")
-
-
-def test_webhook_idempotency():
-    from gateway.accounts import AccountStore
-    from gateway.stripe_integration import handle_event
-
-    event = {"id": "evt_123", "type": "checkout.session.completed",
-             "data": {"object": {"metadata": {"account_id": "acme"},
-                                 "amount_total": 1000, "currency": "eur"}}}
-    store = AccountStore(path="/tmp/gw_idem_test.json")
-    seen = set()
-    handle_event(event, store, save=False, seen_ids=seen)
-    handle_event(event, store, save=False, seen_ids=seen)   # replayed delivery
-    assert store.accounts["acme"].balance_minor == 1000     # credited ONCE
-    handle_event(event, store, save=False, seen_ids=None)   # no idempotency -> double
-    assert store.accounts["acme"].balance_minor == 2000
-    print("  ok  webhook idempotency: replay skipped when seen_ids given")
-
-
-def test_billing_loop():
-    """The fiat -> x402 loop: a paid upstream call debits the customer."""
-    out = '{\"ok\":1}\n{\"price\":\"$0.04\",\"payment\":{\"transactionHash\":\"0x1\"}}'
-    runner, calls = make_runner(out)
-    from gateway.accounts import AccountStore, FxRates
-
-    rates = FxRates()
-    store = AccountStore(path="/tmp/gw_bill_test.json")
-    store.create("acme", currency="EUR", margin=0.30)
-    store.fund("acme", 10)                                   # 10.00 EUR = 1000 minor
-
-    from gateway.client import Billing, SafeClient
-    c = SafeClient(runner=runner, billing=Billing(store, rates))
+def test_on_paid_hook():
+    """Hosted-billing callback: fired on the REAL paid price, per account."""
+    events = []
+    out = '{"ok":1}\n{"price":"$0.04","payment":{"transactionHash":"0x1"}}'
+    runner, _ = make_runner(out)
+    c = SafeClient(runner=runner, on_paid=lambda acct, usd: events.append((acct, usd)))
     c.call("https://x/api/email/work", body={"a": 1}, expected_price=0.04, account="acme")
-    # billed 0.04*0.92*1.3 = 4.784c -> ceil 5 minor
-    assert store.accounts["acme"].balance_minor == 1000 - 5
-    # now drain the account and expect InsufficientBalance on the next paid call
-    store.accounts["acme"].balance_minor = 2
+    assert events == [("acme", 0.04)]
+    # no account -> no hook
+    c.call("https://x/api/email/work", body={"b": 2}, expected_price=0.04)
+    assert len(events) == 1
+    # failing callback surfaces the error after recording the call
+    def boom(acct, usd):
+        raise RuntimeError("billing down")
+    c2 = SafeClient(runner=make_runner(out)[0], on_paid=boom)
     try:
-        c.call("https://x/api/email/work", body={"b": 2}, expected_price=0.04,
-               account="acme")
-        assert False, "should have raised InsufficientBalance"
-    except Exception as e:
-        assert type(e).__name__ in ("InsufficientBalance", "AgentCashError")
-        # the upstream call DID happen and was recorded; the failure is surfaced
-    assert calls["n"] == 2
-    print("  ok  billing loop: customer debited at margin per real call, empty balance surfaces error")
+        c2.call("https://x/api/email/work", body={"c": 3}, expected_price=0.04, account="acme")
+        assert False, "should have raised"
+    except RuntimeError:
+        pass
+    assert c2.ledger.total_usd > 0       # upstream call still recorded
+    print("  ok  on_paid hook: real price, per-account, failure surfaced")
 
 
-def test_api_keys():
-    from gateway.accounts import AccountStore
+def test_quote_client():
+    """quote() hits /v1/quote with the API key and parses the server's price."""
+    from gateway import Gateway
 
-    store = AccountStore(path="/tmp/gw_keys_test.json")
-    store.create("acme", currency="EUR")
-    key = store.issue_api_key("acme")
-    assert key.startswith("gw_")
-    assert store.accounts["acme"].api_key_hash != key          # only hash stored
-    assert store.authenticate(key).id == "acme"                # round-trip
-    for bad in ("gw_forged", ""):
-        try:
-            store.authenticate(bad)
-            raise AssertionError(f"should have raised PermissionError for {bad!r}")
-        except PermissionError:
-            pass
-    print("  ok  api keys: hashed at rest, round-trip auth, forged/missing rejected")
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        def read(self):
+            return b'{"account":"acme","currency":"EUR","charge_minor":5,"charge":"0.05 EUR"}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["key"] = req.headers.get("X-api-key") or req.headers.get("X-API-Key")
+        return FakeResponse()
+
+    import urllib.request
+    orig = urllib.request.urlopen
+    urllib.request.urlopen = fake_urlopen
+    try:
+        gw = Gateway(api_base="http://test", api_key="gw_test")
+        q = gw.quote(0.04)
+    finally:
+        urllib.request.urlopen = orig
+
+    assert "/v1/quote?data_cost_usd=0.04" in captured["url"]
+    assert captured["key"] == "gw_test"
+    assert q["charge_minor"] == 5 and q["currency"] == "EUR"
+    # no key -> clear error, no HTTP call
+    gw2 = Gateway(api_base="http://test")
+    try:
+        gw2.quote(0.04)
+        assert False, "should have raised"
+    except RuntimeError as e:
+        assert "API key" in str(e)
+    print("  ok  quote(): server-side pricing call with API key, no-key guard")
 
 
 def test_rate_limiter():
     from gateway.rate_limit import InMemoryRateLimiter
-    
+
     rl = InMemoryRateLimiter()
     # 3 requêtes max par fenêtre de 1 seconde
     assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
     assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
     assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
     assert rl.check("user:1", max_requests=3, window_seconds=1.0) is False  # 4e rejetée
-    
+
     # clé différente : isolée
     assert rl.check("user:2", max_requests=3, window_seconds=1.0) is True
-    
+
     # reset
     rl.reset()
     assert rl.check("user:1", max_requests=3, window_seconds=1.0) is True
@@ -243,12 +162,8 @@ if __name__ == "__main__":
     test_call_and_ledger()
     test_idempotency()
     test_budget_cap()
-    test_billing_multicurrency()
     test_facade()
-    test_stripe_webhook()
-    test_currency_mismatch_credit()
-    test_webhook_idempotency()
-    test_billing_loop()
-    test_api_keys()
+    test_on_paid_hook()
+    test_quote_client()
     test_rate_limiter()
     print("\nALL GATEWAY TESTS PASSED")

@@ -19,7 +19,7 @@ Easy to embed for agents:
 Prospecting (../prospect_relay) is just one application on top of this core.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .api import Gateway
 from .client import AgentCashError, BudgetExceeded, SafeClient
