@@ -82,12 +82,26 @@ def _wire_session_store(application: FastAPI) -> None:
 _TOOLS_DB_SEEDED: set = set()
 
 
-def _wire_price_registry(application: FastAPI) -> None:
-    """Seed the price registry from the private tools DB when configured.
+def _seed_registry_from_tools_db(registry: PriceRegistry, tools_db: str) -> bool:
+    """Seed ONE registry object from a tools DB, once per (process, db path).
 
-    The registry object is shared module-wide; each tools DB is seeded once
-    per process (re-seeding is idempotent anyway).
+    The cache is keyed by db path but the seeding always targets the given
+    registry — a fresh create_app() gets its own seeded registry even if the
+    module-level app was already wired with the same env.
     """
+    key = (id(registry), tools_db)
+    if tools_db and os.path.exists(tools_db) and key not in _TOOLS_DB_SEEDED:
+        try:
+            registry.seed_from_tools_db(tools_db)
+            _TOOLS_DB_SEEDED.add(key)
+            return True
+        except Exception:
+            pass  # empty registry -> all proxy calls rejected as unknown
+    return False
+
+
+def _wire_price_registry(application: FastAPI) -> None:
+    """Attach and seed this application's price registry from the tools DB."""
     try:
         existing = application.state.price_registry
     except AttributeError:
@@ -95,12 +109,7 @@ def _wire_price_registry(application: FastAPI) -> None:
     if existing is None:
         application.state.price_registry = PriceRegistry()
     tools_db = os.environ.get("TRYX402_TOOLS_DB_PATH", "")
-    if tools_db and os.path.exists(tools_db) and tools_db not in _TOOLS_DB_SEEDED:
-        try:
-            application.state.price_registry.seed_from_tools_db(tools_db)
-            _TOOLS_DB_SEEDED.add(tools_db)
-        except Exception:
-            pass  # empty registry -> all proxy calls rejected as unknown
+    _seed_registry_from_tools_db(application.state.price_registry, tools_db)
 
 
 _wire_session_store(app)
@@ -376,6 +385,74 @@ def proxy_call(request: Request, req: ProxyRequest) -> ProxyResponse:
         total_cents=total_cents,
         new_balance_cents=new_balance,
     )
+
+
+# ---------------------------------------------------------------------------
+# x402-native facade (aggregator/agent discovery + payment)
+# ---------------------------------------------------------------------------
+
+from .x402_facade import build_402_response, build_accepts_for_tool, FacadeConfigError
+
+
+def _facade_pay_to() -> str:
+    """Settlement wallet address for x402 payments (env-configured)."""
+    return os.environ.get("TRYX402_PAY_TO_ADDRESS", "")
+
+
+def _facade_resource_url(request: Request, path: str) -> str:
+    """Absolute public URL of a facade path (for `resource` in 402 payloads)."""
+    base = os.environ.get("TRYX402_PUBLIC_URL", "").rstrip("/")
+    if base:
+        return f"{base}{path}"
+    # Fall back to the request's own host (correct behind Fly.io proxy headers)
+    host = request.headers.get("x-forwarded-host") or request.url.netloc
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{scheme}://{host}{path}"
+
+
+class X402ToolsResponse(BaseModel):
+    x402Version: int
+    tools: list
+
+
+@app.get("/v1/x402/tools", response_model=X402ToolsResponse)
+def x402_tools(request: Request) -> X402ToolsResponse:
+    """Public discovery endpoint for agents and aggregators.
+
+    Lists every registered public origin with its server-set price as an
+    x402 `accepts` entry. No auth: this is the crawlable catalogue.
+    """
+    registry: PriceRegistry = request.app.state.price_registry
+    pay_to = _facade_pay_to()
+    tools = []
+    for origin, price_cents, allow_private in registry.items():
+        if allow_private:
+            continue  # explicitly-private origins never listed
+        try:
+            accepts = build_accepts_for_tool(
+                resource_url=_facade_resource_url(request, "/v1/x402/call"),
+                origin=origin,
+                price_cents=price_cents,
+                pay_to=pay_to,
+            )
+        except FacadeConfigError:
+            continue  # no settlement address configured -> nothing listable
+        tools.append({
+            "origin": origin,
+            "resource": _facade_resource_url(request, "/v1/x402/call"),
+            "scheme": "exact",
+            "network": accepts[0]["network"],
+            "asset": accepts[0]["asset"],
+            "maxAmountRequired": accepts[0]["maxAmountRequired"],
+            "priceDisplay": f"${price_cents / 100:.2f}",
+            "payTo": accepts[0]["payTo"],
+        })
+    return X402ToolsResponse(x402Version=1, tools=tools)
+
+
+def _uses_private_check(origin: str) -> bool:
+    from gateway.registry import _is_private_origin
+    return _is_private_origin(origin)
 
 
 # ---------------------------------------------------------------------------

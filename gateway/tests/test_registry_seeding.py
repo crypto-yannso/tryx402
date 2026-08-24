@@ -50,6 +50,15 @@ class TestRegistrySeeding:
         with pytest.raises(Exception):
             reg.lookup("https://b.example.com/api/scrape")
 
+    def test_registry_items_lists_origins_prices_and_privacy(self):
+        from gateway.registry import PriceRegistry
+        reg = PriceRegistry()
+        reg.register("https://api.apify.com", price_cents=5)
+        reg.register("http://localhost:9", price_cents=1, allow_private=True)
+        items = {o: (p, priv) for o, p, priv in reg.items()}
+        assert items["https://api.apify.com"] == (5, False)
+        assert items["http://localhost:9"] == (1, True)
+
     def test_app_seeds_on_startup_when_env_set(self, monkeypatch, tmp_path):
         tools_db = self._make_tools_db(tmp_path, [
             {"id": "1", "slug": "email-work", "origin": "https://c.example.com",

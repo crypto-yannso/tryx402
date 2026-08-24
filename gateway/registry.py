@@ -90,6 +90,13 @@ class PriceRegistry:
             count += 1
         return count
 
+    def items(self):
+        """Yield (origin, price_cents, is_private_allowed) for every origin."""
+        with self._lock:
+            for origin in sorted(self._prices):
+                yield (origin, self._prices[origin],
+                       origin in self._allow_private)
+
     def lookup(self, url: str) -> int:
         """Return the server-set price in cents for a full URL.
 
