@@ -393,7 +393,7 @@ def proxy_call(request: Request, req: ProxyRequest) -> ProxyResponse:
 # x402-native facade (aggregator/agent discovery + payment)
 # ---------------------------------------------------------------------------
 
-from .x402_facade import build_402_response, build_accepts_for_tool, FacadeConfigError
+from .x402_facade import build_402_response, build_v2_payment_required_header, build_accepts_for_tool, FacadeConfigError
 
 
 def _facade_pay_to() -> str:
@@ -572,24 +572,44 @@ def x402_call(request: Request, req: Optional[X402CallRequest] = None):
             detail="x402 settlement address not configured (TRYX402_PAY_TO_ADDRESS)",
         )
 
-    payment_header = request.headers.get("X-PAYMENT", "")
+    payment_header = request.headers.get("X-PAYMENT") or request.headers.get("PAYMENT-SIGNATURE", "")
     if not payment_header:
         network = os.environ.get("TRYX402_NETWORK", "base")
         asset = os.environ.get("TRYX402_ASSET", "")
         token_name = os.environ.get("TRYX402_TOKEN_NAME", "USD Coin")
         token_version = os.environ.get("TRYX402_TOKEN_VERSION", "2")
         extra = {"name": token_name, "version": token_version}
+        
+        resource_url = _facade_resource_url(request, "/v1/x402/call")
+        description = f"tryx402 proxy for {req.origin}"
+        
+        v2_header = build_v2_payment_required_header(
+            resource_url=resource_url,
+            description=description,
+            price_cents=price_cents,
+            pay_to=pay_to,
+            network=network,
+            asset=asset or None,
+            extra=extra,
+        )
+        
+        headers = {
+            "PAYMENT-REQUIRED": v2_header,
+            "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, X-RECEIPT",
+        }
+
         return JSONResponse(
             status_code=402,
             content=build_402_response(
-                resource_url=_facade_resource_url(request, "/v1/x402/call"),
-                description=f"tryx402 proxy for {req.origin}",
+                resource_url=resource_url,
+                description=description,
                 price_cents=price_cents,
                 pay_to=pay_to,
                 network=network,
                 asset=asset or None,
                 extra=extra,
             ),
+            headers=headers,
         )
 
     # Payment present -> delegated to the payment-flow cycle (next).

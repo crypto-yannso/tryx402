@@ -77,18 +77,32 @@ def verify_with_facilitator(payment_payload: dict,
     fac_url = _facilitator_base()
     if fac_url == "local" or not fac_url.startswith(("http://", "https://")):
         try:
-            from x402.mechanisms.evm.exact.v1.facilitator import ExactEvmSchemeV1
             from x402.mechanisms.evm.signers import FacilitatorWeb3Signer
-            from x402.schemas.v1 import PaymentPayloadV1, PaymentRequirementsV1
-
-            payload_obj = PaymentPayloadV1.model_validate(payment_payload)
-            reqs_obj = PaymentRequirementsV1.model_validate(requirements)
             rpc_url = os.environ.get("BASE_RPC_URL", "https://mainnet.base.org")
-            # Signer for on-chain verification (read-only verification does not need private key)
             dummy_key = os.environ.get("TRYX402_RECEIPT_KEY", "01" * 32)
             if len(dummy_key) != 64:
                 dummy_key = "01" * 32
             fac_signer = FacilitatorWeb3Signer(private_key=dummy_key, rpc_url=rpc_url)
+
+            # Check if payload is V1 or V2
+            version = payment_payload.get("x402Version", 1)
+            if version == 2:
+                from x402.mechanisms.evm.exact.facilitator import ExactEvmScheme
+                from x402.schemas.payments import PaymentPayload, PaymentRequirements
+
+                payload_v2 = PaymentPayload.model_validate(payment_payload)
+                reqs_v2 = PaymentRequirements.model_validate(requirements)
+                scheme = ExactEvmScheme(fac_signer)
+                v_res = scheme.verify(payload_v2, reqs_v2)
+                if not v_res.is_valid:
+                    raise FacilitatorError(f"payment invalid: {v_res.invalid_reason}")
+                return {"isValid": True, "payer": v_res.payer}
+
+            from x402.mechanisms.evm.exact.v1.facilitator import ExactEvmSchemeV1
+            from x402.schemas.v1 import PaymentPayloadV1, PaymentRequirementsV1
+
+            payload_obj = PaymentPayloadV1.model_validate(payment_payload)
+            reqs_obj = PaymentRequirementsV1.model_validate(requirements)
             scheme = ExactEvmSchemeV1(fac_signer)
             v_res = scheme.verify(payload_obj, reqs_obj)
             if not v_res.is_valid:
@@ -140,8 +154,8 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
     from fastapi import HTTPException
     from .proxy import ProxyConfig, DEFAULT_COMMISSION_RATE, DEFAULT_MIN_COMMISSION_CENTS
 
-    # 1) Decode + verify the payment with the facilitator
-    header = request.headers.get("X-PAYMENT", "")
+    # 1) Decode + verify the payment with the facilitator (V1 X-PAYMENT or V2 PAYMENT-SIGNATURE)
+    header = request.headers.get("X-PAYMENT") or request.headers.get("PAYMENT-SIGNATURE", "")
     try:
         payment = decode_x402_header(header)
     except FacilitatorError as exc:

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-__all__ = ["build_accepts", "FacadeConfigError", "build_402_response"]
+__all__ = ["build_accepts", "build_accepts_v2", "build_v2_payment_required_header", "FacadeConfigError", "build_402_response"]
 
 # Base mainnet USDC by default; overridable per environment.
 DEFAULT_NETWORK = "base"
@@ -103,6 +103,63 @@ def build_accepts_for_tool(resource_url: str, origin: str,
         asset=asset,
         extra=extra,
     )
+
+
+def build_accepts_v2(
+    price_cents: int,
+    pay_to: str,
+    network: str = DEFAULT_NETWORK,
+    asset: Optional[str] = None,
+    max_timeout_seconds: int = DEFAULT_MAX_TIMEOUT_SECONDS,
+    extra: Optional[dict] = None,
+) -> List[dict]:
+    """Build V2 payment requirements structure (CAIP-2, amount in units, extra dict)."""
+    if not pay_to or not pay_to.strip():
+        raise FacadeConfigError("pay_to is required")
+    if price_cents is None or int(price_cents) <= 0:
+        raise FacadeConfigError("price_cents must be positive")
+
+    entry = {
+        "scheme": "exact",
+        "network": canonical_network(network or DEFAULT_NETWORK),
+        "asset": asset or DEFAULT_ASSET,
+        "amount": str(_atomic_units(int(price_cents))),
+        "payTo": pay_to.strip(),
+        "maxTimeoutSeconds": int(max_timeout_seconds),
+        "extra": extra or {},
+    }
+    return [entry]
+
+
+def build_v2_payment_required_header(
+    resource_url: str,
+    description: str,
+    price_cents: int,
+    pay_to: str,
+    network: str = DEFAULT_NETWORK,
+    asset: Optional[str] = None,
+    extra: Optional[dict] = None,
+) -> str:
+    """Build base64-encoded PAYMENT-REQUIRED header value for x402 V2 spec."""
+    import base64
+    import json
+
+    v2_payload = {
+        "x402Version": 2,
+        "resource": {
+            "url": resource_url,
+            "description": description,
+            "mimeType": "application/json",
+        },
+        "accepts": build_accepts_v2(
+            price_cents=price_cents,
+            pay_to=pay_to,
+            network=network,
+            asset=asset,
+            extra=extra,
+        ),
+    }
+    return base64.b64encode(json.dumps(v2_payload).encode("utf-8")).decode("utf-8")
 
 
 def build_402_response(
