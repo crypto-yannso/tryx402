@@ -156,6 +156,8 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
             "TRYX402_ASSET", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
         "payTo": pay_to,
         "resource": resource_url,
+        "maxTimeoutSeconds": 60,
+        "mimeType": "",
         # EIP-712 domain for the token (facilitator verifies the signature
         # against this; missing domain -> invalid_exact_evm_missing_eip712_domain)
         "extra": {
