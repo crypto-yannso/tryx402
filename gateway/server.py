@@ -36,7 +36,7 @@ __all__ = ["create_app"]
 # ---------------------------------------------------------------------------
 
 _DB_PATH = os.environ.get("TRYX402_DB_PATH", "/tmp/tryx402_wallets.db")
-_WEBHOOK_SECRET = os.environ.get("TRYX402_STRIPE_WEBHOOK_SECRET", "")
+_WEBHOOK_SECRET = os.environ.get("TRYX402_STRIPE_WEBHOOK_SECRET", "") or os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def billing_setup(req: BillingSetupRequest) -> Dict[str, object]:
 
 @app.post("/v1/billing/webhook")
 async def stripe_webhook(request: Request) -> Dict[str, object]:
-    secret = os.environ.get("TRYX402_STRIPE_WEBHOOK_SECRET", "")
+    secret = os.environ.get("TRYX402_STRIPE_WEBHOOK_SECRET", "") or os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     if not secret:
         raise HTTPException(status_code=501, detail="Webhook secret not configured")
     body_bytes = await request.body()

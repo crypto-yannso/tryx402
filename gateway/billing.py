@@ -31,11 +31,18 @@ class StripePaymentError(Exception):
     """Raised on Stripe API / payment errors."""
 
 
-def _require_env(var: str, label: str) -> str:
+def _require_env(var: str, label: str, fallback_var: Optional[str] = None) -> str:
     value = os.environ.get(var, "").strip()
+    if not value and fallback_var:
+        value = os.environ.get(fallback_var, "").strip()
     if not value:
-        raise StripeConfigError(f"Missing {label}. Set {var}.")
+        var_name = f"{var} (or {fallback_var})" if fallback_var else var
+        raise StripeConfigError(f"Missing {label}. Set {var_name}.")
     return value
+
+
+def _get_env_with_fallback(var: str, fallback_var: str, default: str = "") -> str:
+    return os.environ.get(var, "").strip() or os.environ.get(fallback_var, "").strip() or default
 
 
 def _api_get(url: str, secret: str) -> Dict[str, Any]:
@@ -88,15 +95,15 @@ class StripeBilling:
         amount_cents: Optional[int] = None,
         currency: Optional[str] = None,
     ) -> None:
-        self.secret_key = secret_key or _require_env("TRYX402_STRIPE_SECRET_KEY", "Stripe secret key")
-        self.price_id = price_id or os.environ.get("TRYX402_STRIPE_PRICE_ID", "")
+        self.secret_key = secret_key or _require_env("TRYX402_STRIPE_SECRET_KEY", "Stripe secret key", fallback_var="STRIPE_SECRET_KEY")
+        self.price_id = price_id or _get_env_with_fallback("TRYX402_STRIPE_PRICE_ID", "STRIPE_PRICE_ID")
         self.success_url = success_url or os.environ.get(
             "TRYX402_STRIPE_SUCCESS_URL", "https://tryx402.app/billing/success"
         )
         self.cancel_url = cancel_url or os.environ.get(
             "TRYX402_STRIPE_CANCEL_URL", "https://tryx402.app/billing/cancel"
         )
-        self.webhook_secret = webhook_secret or os.environ.get("TRYX402_STRIPE_WEBHOOK_SECRET", "")
+        self.webhook_secret = webhook_secret or _get_env_with_fallback("TRYX402_STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET")
         # Per-request amount/currency: passed explicitly by callers instead of
         # mutating global os.environ (which is a cross-request race).
         self.amount_cents = amount_cents
