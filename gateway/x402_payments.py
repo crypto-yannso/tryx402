@@ -188,9 +188,13 @@ def handle_paid_call(request, req, price_cents: int, pay_to: str,
     # 2) Forward to the provider through the SAME guarded transport rules
     url = f"{req.origin.rstrip('/')}{req.path}"
     data = json.dumps(req.body or {}).encode() if req.method.upper() != "GET" else None
+    fwd_headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     fwd_req = urllib.request.Request(
         url, data=data,
-        headers={"Content-Type": "application/json"},
+        headers=fwd_headers,
         method=req.method.upper(),
     )
     try:
