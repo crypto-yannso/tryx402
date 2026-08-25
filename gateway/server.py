@@ -537,19 +537,25 @@ def provider_page(request: Request):
 
 
 class X402CallRequest(BaseModel):
-    origin: str
+    origin: str = "https://402utils.com"
     path: str = "/"
     method: str = "POST"
     body: Optional[Dict] = None
 
 
-@app.post("/v1/x402/call")
-def x402_call(request: Request, req: X402CallRequest):
+@app.api_route("/v1/x402/call", methods=["GET", "POST"])
+def x402_call(request: Request, req: Optional[X402CallRequest] = None):
     """Pay-per-call facade for external x402 agents.
 
     No X-PAYMENT -> 402 with payment requirements (spec-conformant).
     Valid X-PAYMENT -> verify via facilitator, then proxy to the origin.
     """
+    if req is None:
+        # GET probe or empty probe fallback
+        origin = request.query_params.get("origin", "https://402utils.com")
+        path = request.query_params.get("path", "/")
+        req = X402CallRequest(origin=origin, path=path, method=request.method)
+
     registry: PriceRegistry = request.app.state.price_registry
     url = f"{req.origin.rstrip('/')}{req.path}"
     try:
@@ -640,21 +646,24 @@ def _setup_custom_openapi(application: FastAPI) -> None:
 
         # Enhance payable route metadata for discovery bots (x402scan, AgentCash, Bazaar)
         paths = openapi_schema.get("paths", {})
-        if "/v1/x402/call" in paths and "post" in paths["/v1/x402/call"]:
-            post_op = paths["/v1/x402/call"]["post"]
-            post_op.setdefault("responses", {})
-            post_op["responses"]["402"] = {
-                "description": "Payment Required - returns x402 payment challenge with exact scheme requirements"
-            }
-            post_op["x-payment-info"] = {
-                "price": {
-                    "mode": "dynamic",
-                    "currency": "USD",
-                    "min": "0.01",
-                    "max": "1.00",
-                },
-                "protocols": [{"x402": {}}],
-            }
+        if "/v1/x402/call" in paths:
+            call_path = paths["/v1/x402/call"]
+            for method_op in ("post", "get"):
+                if method_op in call_path:
+                    op = call_path[method_op]
+                    op.setdefault("responses", {})
+                    op["responses"]["402"] = {
+                        "description": "Payment Required - returns x402 payment challenge with exact scheme requirements"
+                    }
+                    op["x-payment-info"] = {
+                        "price": {
+                            "mode": "dynamic",
+                            "currency": "USD",
+                            "min": "0.01",
+                            "max": "1.00",
+                        },
+                        "protocols": [{"x402": {}}],
+                    }
 
         application.openapi_schema = openapi_schema
         return application.openapi_schema
