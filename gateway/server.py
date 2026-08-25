@@ -427,6 +427,9 @@ def x402_tools(request: Request) -> X402ToolsResponse:
     pay_to = _facade_pay_to()
     network = os.environ.get("TRYX402_NETWORK", "base")
     asset = os.environ.get("TRYX402_ASSET", "")
+    token_name = os.environ.get("TRYX402_TOKEN_NAME", "USD Coin")
+    token_version = os.environ.get("TRYX402_TOKEN_VERSION", "2")
+    extra = {"name": token_name, "version": token_version}
     tools = []
     for origin, price_cents, allow_private in registry.items():
         if allow_private:
@@ -439,6 +442,7 @@ def x402_tools(request: Request) -> X402ToolsResponse:
                 pay_to=pay_to,
                 network=network,
                 asset=asset or None,
+                extra=extra,
             )
         except FacadeConfigError:
             continue  # no settlement address configured -> nothing listable
@@ -565,6 +569,9 @@ def x402_call(request: Request, req: X402CallRequest):
     if not payment_header:
         network = os.environ.get("TRYX402_NETWORK", "base")
         asset = os.environ.get("TRYX402_ASSET", "")
+        token_name = os.environ.get("TRYX402_TOKEN_NAME", "USD Coin")
+        token_version = os.environ.get("TRYX402_TOKEN_VERSION", "2")
+        extra = {"name": token_name, "version": token_version}
         return JSONResponse(
             status_code=402,
             content=build_402_response(
@@ -574,6 +581,7 @@ def x402_call(request: Request, req: X402CallRequest):
                 pay_to=pay_to,
                 network=network,
                 asset=asset or None,
+                extra=extra,
             ),
         )
 

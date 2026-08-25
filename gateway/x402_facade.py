@@ -55,6 +55,7 @@ def build_accepts(
     network: str = DEFAULT_NETWORK,
     asset: Optional[str] = None,
     max_timeout_seconds: int = DEFAULT_MAX_TIMEOUT_SECONDS,
+    extra: Optional[dict] = None,
 ) -> List[dict]:
     """Build the x402 `accepts` payment-requirements payload."""
     if not pay_to or not pay_to.strip():
@@ -74,6 +75,8 @@ def build_accepts(
         "maxTimeoutSeconds": int(max_timeout_seconds),
         "mimeType": "",
     }
+    if extra:
+        entry["extra"] = extra
     if network and network.startswith("solana"):
         # Solana assets are referenced by mint address, feePayer required by spec
         entry["feePayer"] = pay_to.strip()
@@ -83,7 +86,8 @@ def build_accepts(
 def build_accepts_for_tool(resource_url: str, origin: str,
                            price_cents: int, pay_to: str,
                            network: str = DEFAULT_NETWORK,
-                           asset: str = DEFAULT_ASSET) -> list:
+                           asset: str = DEFAULT_ASSET,
+                           extra: Optional[dict] = None) -> list:
     """Build the x402 `accepts` payload for one catalogue tool.
 
     The resource is the shared /v1/x402/call endpoint; the origin being sold
@@ -97,6 +101,7 @@ def build_accepts_for_tool(resource_url: str, origin: str,
         pay_to=pay_to,
         network=network,
         asset=asset,
+        extra=extra,
     )
 
 
@@ -108,6 +113,7 @@ def build_402_response(
     error: Optional[str] = None,
     network: str = DEFAULT_NETWORK,
     asset: Optional[str] = None,
+    extra: Optional[dict] = None,
 ) -> dict:
     """Build the full JSON body returned with an HTTP 402."""
     body = {
@@ -120,6 +126,7 @@ def build_402_response(
             pay_to=pay_to,
             network=network,
             asset=asset,
+            extra=extra,
         ),
     }
     return body
