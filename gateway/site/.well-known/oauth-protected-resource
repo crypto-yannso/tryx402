@@ -1,0 +1,8 @@
+{
+  "resource": "https://www.tryx402.app/",
+  "resource_name": "tryx402",
+  "resource_logo_uri": "https://www.tryx402.app/favicon.ico",
+  "authorization_servers": ["https://www.tryx402.app/"],
+  "scopes_supported": ["tools.read", "tools.execute", "billing.read"],
+  "bearer_methods_supported": ["header"]
+}

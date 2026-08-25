@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- tryx402 favicon : fond sombre du site, accent braise, "4" géant + badge "02" -->
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="#0f0e0c"/>
+  <!-- chiffre 4 fermé : apex en haut, diagonale vers la barre, verticale à droite -->
+  <g fill="none" stroke="#ff5c1a" stroke-linejoin="miter" stroke-linecap="butt">
+    <!-- diagonale : de l'apex jusqu'à la barre -->
+    <path d="M 33 13 L 13 40" stroke-width="8.5"/>
+    <!-- barre horizontale -->
+    <path d="M 9 40 L 45 40" stroke-width="8.5"/>
+    <!-- verticale : de l'apex jusqu'en bas -->
+    <path d="M 33 13 L 33 53" stroke-width="8.5"/>
+  </g>
+  <!-- badge "02" : référence au paiement 402 -->
+  <rect x="35" y="43" width="23" height="14" rx="4" fill="#ff5c1a"/>
+  <text x="46.5" y="53.6" font-family="ui-monospace, 'JetBrains Mono', Menlo, monospace" font-size="10.5" font-weight="800" fill="#0f0e0c" text-anchor="middle" letter-spacing="0.5">02</text>
+</svg>

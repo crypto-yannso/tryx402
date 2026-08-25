@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/agent-manifest-1.0.0.json",
+  "name": "tryx402",
+  "version": "1.0.0",
+  "description": "The budget router and execution gateway for AI agents consuming paid x402 APIs.",
+  "protocol": "a2a",
+  "agent_card": {
+    "name": "tryx402-gateway",
+    "type": "financial-governance-gateway",
+    "protocols": ["x402", "a2a", "mcp"],
+    "interfaces": {
+      "mcp": "tryx402.mcp_server",
+      "mcp_server_card": "https://www.tryx402.app/.well-known/mcp/server-card.json",
+      "mcp_endpoint": "https://www.tryx402.app/api/mcp",
+      "openapi": "https://www.tryx402.app/openapi.json",
+      "oauth_protected_resource": "https://www.tryx402.app/.well-known/oauth-protected-resource",
+      "oauth_authorization_server": "https://www.tryx402.app/.well-known/oauth-authorization-server",
+      "auth_guide": "https://www.tryx402.app/auth.md",
+      "pricing": "https://www.tryx402.app/api/pricing",
+      "docs": "https://www.tryx402.app/docs"
+    }
+  },
+  "url": "https://www.tryx402.app",
+  "documentation": "https://www.tryx402.app/llms-full.txt",
+  "capabilities": {
+    "protocol": "x402",
+    "budget_enforcement": "pre-auth-hard-cap",
+    "idempotency": "deterministic-key",
+    "ledger": "per-call-origin-tracking",
+    "fiat_bridge": "multi-currency-stripe-checkout"
+  },
+  "mcp": {
+    "server": "tryx402.mcp_server",
+    "transport": "stdio",
+    "tools": [
+      "gateway_search",
+      "gateway_discover",
+      "gateway_call",
+      "gateway_spent"
+    ]
+  },
+  "settlement": {
+    "currency": "USDC",
+    "chains": ["Base", "Solana"],
+    "handshake": "HTTP 402"
+  }
+}

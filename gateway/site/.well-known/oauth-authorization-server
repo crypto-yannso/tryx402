@@ -1,0 +1,26 @@
+{
+  "resource": "https://www.tryx402.app/",
+  "authorization_servers": ["https://www.tryx402.app/"],
+  "scopes_supported": ["tools.read", "tools.execute", "billing.read"],
+  "bearer_methods_supported": ["header"],
+  "issuer": "https://www.tryx402.app",
+  "token_endpoint": "https://www.tryx402.app/oauth2/token",
+  "revocation_endpoint": "https://www.tryx402.app/oauth2/revoke",
+  "grant_types_supported": [
+    "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    "urn:workos:agent-auth:grant-type:claim"
+  ],
+  "agent_auth": {
+    "skill": "https://www.tryx402.app/auth.md",
+    "identity_endpoint": "https://www.tryx402.app/agent/identity",
+    "claim_endpoint": "https://www.tryx402.app/agent/identity/claim",
+    "events_endpoint": "https://www.tryx402.app/agent/event/notify",
+    "identity_types_supported": ["anonymous", "identity_assertion", "service_auth"],
+    "identity_assertion": {
+      "assertion_types_supported": ["urn:ietf:params:oauth:token-type:id-jag"]
+    },
+    "events_supported": [
+      "https://schemas.workos.com/events/agent/auth/identity/assertion/revoked"
+    ]
+  }
+}

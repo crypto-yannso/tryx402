@@ -522,6 +522,57 @@ def _site_page(request: Request, base: str):
     raise HTTPException(status_code=404, detail="Not Found")
 
 
+@app.get("/")
+def home_page(request: Request):
+    """Serve the root landing page."""
+    return _site_page(request, "index")
+
+
+@app.get("/favicon.ico")
+def favicon_ico():
+    from fastapi.responses import FileResponse
+    path = os.path.join(SITE_DIR, "favicon.ico")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/x-icon")
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get("/favicon.svg")
+def favicon_svg():
+    from fastapi.responses import FileResponse
+    path = os.path.join(SITE_DIR, "favicon.svg")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get("/favicon-{size}.png")
+def favicon_png(size: str):
+    from fastapi.responses import FileResponse
+    path = os.path.join(SITE_DIR, f"favicon-{size}.png")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get("/apple-touch-icon.png")
+def apple_touch_icon():
+    from fastapi.responses import FileResponse
+    path = os.path.join(SITE_DIR, "apple-touch-icon.png")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get("/og-image.png")
+def og_image():
+    from fastapi.responses import FileResponse
+    path = os.path.join(SITE_DIR, "og-image.png")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
 @app.get("/tools")
 @app.get("/tools/")
 def tools_page(request: Request):
@@ -662,6 +713,10 @@ def _setup_custom_openapi(application: FastAPI) -> None:
             "name": "tryx402 Team",
             "email": "yann@artaifact.com",
             "url": "https://www.tryx402.app",
+        }
+        openapi_schema["info"]["x-logo"] = {
+            "url": "https://tryx402.fly.dev/favicon-512.png",
+            "altText": "tryx402 logo",
         }
 
         # Enhance payable route metadata for discovery bots (x402scan, AgentCash, Bazaar)
