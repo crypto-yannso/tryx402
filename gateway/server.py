@@ -71,6 +71,9 @@ app = FastAPI(
     title="tryx402 hosted service",
     description="Wallet, billing, and telemetry for tryx402.",
     version="0.4.0",
+    openapi_url=None,
+    docs_url=None,
+    redoc_url=None,
 )
 app.state.price_registry = PriceRegistry()
 
@@ -695,65 +698,14 @@ def tools_list(active_only: bool = True):
     return {"success": True, "count": len(tools), "tools": tools}
 
 
-def _setup_custom_openapi(application: FastAPI) -> None:
-    def custom_openapi():
-        if application.openapi_schema:
-            return application.openapi_schema
-        openapi_schema = get_openapi(
-            title="tryx402 — Universal Agent Payments & Gateway",
-            version="0.4.0",
-            description="Autonomous pay-per-call proxy and microtransaction payment gateway over x402.",
-            routes=application.routes,
-        )
-        openapi_schema["info"]["x-guidance"] = (
-            "tryx402 enables AI agents to discover, invoke, and pay for 76+ microservices and web2 tools. "
-            "Call POST /v1/x402/call with origin and path. On 402, sign the exact amount and retry with X-PAYMENT."
-        )
-        openapi_schema["info"]["contact"] = {
-            "name": "tryx402 Team",
-            "email": "yann@artaifact.com",
-            "url": "https://www.tryx402.app",
-        }
-        openapi_schema["info"]["x-logo"] = {
-            "url": "https://tryx402.fly.dev/favicon-512.png",
-            "altText": "tryx402 logo",
-        }
-
-        # Enhance payable route metadata for discovery bots (x402scan, AgentCash, Bazaar)
-        paths = openapi_schema.get("paths", {})
-        if "/v1/x402/call" in paths:
-            call_path = paths["/v1/x402/call"]
-            for method_op in ("post", "get"):
-                if method_op in call_path:
-                    op = call_path[method_op]
-                    op.setdefault("responses", {})
-                    op["responses"]["402"] = {
-                        "description": "Payment Required - returns x402 payment challenge with exact scheme requirements"
-                    }
-                    op["x-payment-info"] = {
-                        "price": {
-                            "mode": "dynamic",
-                            "currency": "USD",
-                            "min": "0.01",
-                            "max": "1.00",
-                        },
-                        "protocols": [{"x402": {}}],
-                    }
-
-        application.openapi_schema = openapi_schema
-        return application.openapi_schema
-
-    application.openapi = custom_openapi
-
-
-_setup_custom_openapi(app)
-
-
 def create_app() -> FastAPI:
     new_app = FastAPI(
         title="tryx402 hosted service",
         description="Wallet, billing, and telemetry for tryx402.",
         version="0.4.0",
+        openapi_url=None,
+        docs_url=None,
+        redoc_url=None,
     )
     # Persistent session store sharing the wallet DB — sessions survive
     # restarts (Fly.io scale-to-zero).
@@ -762,7 +714,6 @@ def create_app() -> FastAPI:
     for route in app.routes:
         if hasattr(route, "endpoint"):
             new_app.routes.append(route)
-    _setup_custom_openapi(new_app)
     return new_app
 
 
