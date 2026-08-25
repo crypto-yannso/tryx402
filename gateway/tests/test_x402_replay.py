@@ -39,6 +39,7 @@ class TestX402ReplayProtection:
     @pytest.fixture(autouse=True)
     def _env(self, monkeypatch):
         monkeypatch.setenv("TRYX402_PAY_TO_ADDRESS", PUBLIC_KEY)
+        monkeypatch.setenv("TRYX402_FACILITATOR_URL", "https://x402.org/facilitator")
 
     def test_same_payment_header_replayed_is_rejected(self, monkeypatch):
         from gateway.server import create_app

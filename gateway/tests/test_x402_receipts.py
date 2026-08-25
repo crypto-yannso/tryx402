@@ -38,6 +38,7 @@ class TestX402Receipts:
     def _env(self, monkeypatch):
         monkeypatch.setenv("TRYX402_PAY_TO_ADDRESS", PUBLIC_KEY)
         monkeypatch.setenv("TRYX402_RECEIPT_KEY", RECEIPT_SEED)
+        monkeypatch.setenv("TRYX402_FACILITATOR_URL", "https://x402.org/facilitator")
 
     def _app_with_upstream(self, monkeypatch):
         from gateway.server import create_app

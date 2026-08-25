@@ -22,7 +22,7 @@ dependencies = []
 
 [project.optional-dependencies]
 native = ["httpx>=0.24"]
-server = ["fastapi", "uvicorn", "pydantic", "stripe", "httpx>=0.24"]
+server = ["fastapi", "uvicorn", "pydantic", "stripe", "httpx>=0.24", "x402[evm]>=2.20.0"]
 
 [project.urls]
 Homepage = "https://www.tryx402.app"

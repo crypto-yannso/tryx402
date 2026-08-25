@@ -40,6 +40,7 @@ class TestX402PaidCall:
     @pytest.fixture(autouse=True)
     def _env(self, monkeypatch):
         monkeypatch.setenv("TRYX402_PAY_TO_ADDRESS", PUBLIC_KEY)
+        monkeypatch.setenv("TRYX402_FACILITATOR_URL", "https://x402.org/facilitator")
 
     def _register(self, app):
         app.state.price_registry.register(origin=ORIGIN, price_cents=5)
