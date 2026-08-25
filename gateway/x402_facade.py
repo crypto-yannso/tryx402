@@ -106,6 +106,8 @@ def build_402_response(
     price_cents: int,
     pay_to: str,
     error: Optional[str] = None,
+    network: str = DEFAULT_NETWORK,
+    asset: Optional[str] = None,
 ) -> dict:
     """Build the full JSON body returned with an HTTP 402."""
     body = {
@@ -116,6 +118,8 @@ def build_402_response(
             description=description,
             price_cents=price_cents,
             pay_to=pay_to,
+            network=network,
+            asset=asset,
         ),
     }
     return body

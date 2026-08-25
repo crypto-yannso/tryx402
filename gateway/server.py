@@ -563,6 +563,8 @@ def x402_call(request: Request, req: X402CallRequest):
 
     payment_header = request.headers.get("X-PAYMENT", "")
     if not payment_header:
+        network = os.environ.get("TRYX402_NETWORK", "base")
+        asset = os.environ.get("TRYX402_ASSET", "")
         return JSONResponse(
             status_code=402,
             content=build_402_response(
@@ -570,6 +572,8 @@ def x402_call(request: Request, req: X402CallRequest):
                 description=f"tryx402 proxy for {req.origin}",
                 price_cents=price_cents,
                 pay_to=pay_to,
+                network=network,
+                asset=asset or None,
             ),
         )
 
