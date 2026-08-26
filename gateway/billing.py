@@ -91,10 +91,10 @@ class StripeBilling:
         self.secret_key = secret_key or _require_env("TRYX402_STRIPE_SECRET_KEY", "Stripe secret key")
         self.price_id = price_id or os.environ.get("TRYX402_STRIPE_PRICE_ID", "")
         self.success_url = success_url or os.environ.get(
-            "TRYX402_STRIPE_SUCCESS_URL", "https://tryx402.app/billing/success"
+            "TRYX402_STRIPE_SUCCESS_URL", "https://tryx402.fly.dev/billing/success"
         )
         self.cancel_url = cancel_url or os.environ.get(
-            "TRYX402_STRIPE_CANCEL_URL", "https://tryx402.app/billing/cancel"
+            "TRYX402_STRIPE_CANCEL_URL", "https://tryx402.fly.dev/billing/cancel"
         )
         self.webhook_secret = webhook_secret or os.environ.get("TRYX402_STRIPE_WEBHOOK_SECRET", "")
         # Per-request amount/currency: passed explicitly by callers instead of
@@ -133,18 +133,19 @@ class StripeBilling:
             currency = self.currency or os.environ.get("TRYX402_STRIPE_CURRENCY", "usd")
             if not amount:
                 raise StripeConfigError("TRYX402_STRIPE_AMOUNT_CENTS is required for one-time mode.")
-            payload["line_items"] = [{
-                "price_data": {
-                    "currency": currency,
-                    "unit_amount": int(amount),
-                    "product_data": {"name": "tryx402 usage credit"},
-                },
-                "quantity": 1,
-            }]
+            # Use bracket-notation keys so urlencode preserves Stripe's nested
+            # array shape. urlencode cannot flatten nested dicts/lists by itself.
+            base = "line_items[0]"
+            payload[f"{base}[price_data][currency]"] = currency
+            payload[f"{base}[price_data][unit_amount]"] = int(amount)
+            payload[f"{base}[price_data][product_data][name]"] = "tryx402 usage credit"
+            payload[f"{base}[quantity]"] = 1
 
         if metadata:
             for key, value in metadata.items():
                 payload[f"metadata[{key}]"] = str(value)
+            if "customer_id" in metadata and "client_reference_id" not in payload:
+                payload["client_reference_id"] = str(metadata["customer_id"])
 
         return _api_post("https://api.stripe.com/v1/checkout/sessions", payload, self.secret_key)
 

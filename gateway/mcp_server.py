@@ -27,11 +27,11 @@ import sys
 from .api import Gateway
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "tryx402", "version": "0.3.1"}
+SERVER_INFO = {"name": "tryx402", "version": "0.4.0"}
 
 
 def _budget():
-    v = os.environ.get("GATEWAY_MAX_BUDGET_USD")
+    v = os.environ.get("TRYX402_MAX_BUDGET_USD") or os.environ.get("GATEWAY_MAX_BUDGET_USD")
     return float(v) if v else None
 
 
@@ -62,9 +62,9 @@ TOOLS = [
     },
     {
         "name": "gateway_call",
-        "description": "Call ANY AgentCash/x402 endpoint safely: hard budget cap, "
-                       "idempotency, cost ledger. SPENDS real USDC. Pass `price` "
-                       "(expected USD) so the budget cap and accounting work.",
+        "description": "Call a pay-per-use API endpoint safely: hard budget cap, "
+                       "idempotency, cost ledger. Billed in USD. Pass `price` "
+                       "(expected USD) so budget tracking and accounting work.",
         "inputSchema": {
             "type": "object",
             "properties": {

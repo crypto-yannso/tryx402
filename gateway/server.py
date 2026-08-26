@@ -185,6 +185,14 @@ class CheckoutRequest(BaseModel):
     customer_email: str
     amount_cents: int
     currency: str = "eur"
+    customer_id: Optional[str] = None
+
+    @field_validator('amount_cents')
+    @classmethod
+    def validate_min_amount(cls, v):
+        if v < 500:
+            raise ValueError('Minimum top-up is 5.00 EUR (500 cents).')
+        return v
 
 
 class BillingSetupRequest(BaseModel):
@@ -204,9 +212,13 @@ class BillingSetupRequest(BaseModel):
 def create_checkout(req: CheckoutRequest) -> Dict[str, str]:
     try:
         billing = StripeBilling(amount_cents=req.amount_cents, currency=req.currency)
+        metadata = {}
+        if req.customer_id:
+            metadata["customer_id"] = req.customer_id
         session = billing.create_checkout_session(
             req.customer_email,
             mode="payment",
+            metadata=metadata if metadata else None,
         )
         return {"url": session["url"], "session_id": session["id"]}
     except StripeConfigError as exc:
@@ -254,7 +266,11 @@ async def stripe_webhook(request: Request) -> Dict[str, object]:
     data = event.get("data", {}).get("object", {})
 
     if event_type == "checkout.session.completed":
-        customer_id = data.get("client_reference_id") or data.get("customer", "")
+        customer_id = (
+            data.get("client_reference_id")
+            or data.get("metadata", {}).get("customer_id")
+            or data.get("customer", "")
+        )
         if customer_id:
             wallet = _get_wallet(customer_id)
             amount = data.get("amount_total", 0)
@@ -269,6 +285,20 @@ async def stripe_webhook(request: Request) -> Dict[str, object]:
             )
 
     return {"received": True, "type": event_type}
+
+
+# ---------------------------------------------------------------------------
+# Billing return pages (Stripe Checkout redirect targets)
+# ---------------------------------------------------------------------------
+
+@app.get("/billing/success")
+def billing_success() -> Dict[str, str]:
+    return {"status": "ok", "message": "Payment successful. Wallet will be credited shortly."}
+
+
+@app.get("/billing/cancel")
+def billing_cancel() -> Dict[str, str]:
+    return {"status": "cancelled", "message": "Payment cancelled. No charge was made."}
 
 
 # ---------------------------------------------------------------------------

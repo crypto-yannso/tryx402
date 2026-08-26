@@ -13,7 +13,7 @@ Adds what AgentCash itself lacks and we learned we need the hard way:
 MIT licensed. Built in France.
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 from ._telemetry import _ping  # noqa: F401  — best-effort, never raises
 
