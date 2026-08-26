@@ -78,10 +78,18 @@ app = FastAPI(
 app.state.price_registry = PriceRegistry()
 
 
+from .mcp_ledger import McpSessionLedger
+
+
+from .wallet_email_index import EmailWalletIndex
+
+
 def _wire_session_store(application: FastAPI) -> None:
     """Attach a SQLite-backed SessionStore sharing the wallet DB."""
     db_path = os.environ.get("TRYX402_DB_PATH", _DB_PATH)
     application.state.session_store = SessionStore(db_path)
+    application.state.mcp_ledger = McpSessionLedger(db_path)
+    application.state.email_index = EmailWalletIndex(db_path)
 
 
 _TOOLS_DB_SEEDED: set = set()
@@ -178,21 +186,126 @@ def get_transactions(request: Request) -> Dict[str, object]:
 
 
 # ---------------------------------------------------------------------------
-# Billing endpoints
+# MCP Session Governance Endpoints (Atomic SQLite persistence)
+# ---------------------------------------------------------------------------
+
+class McpCallRequest(BaseModel):
+    session_id: str
+    url: str
+    method: str = "POST"
+    price_usd: float
+    max_budget: Optional[float] = None
+
+
+@app.get("/v1/mcp/session/spend")
+def mcp_get_spend(request: Request, session_id: str = "default") -> Dict[str, object]:
+    ledger = getattr(request.app.state, "mcp_ledger", None)
+    if not ledger:
+        return {
+            "session_id": session_id,
+            "session_budget_usd": 1.0,
+            "session_spent_usd": 0.0,
+            "remaining_budget_usd": 1.0,
+            "calls_count": 0,
+            "by_origin": {}
+        }
+    result = ledger.get_session(session_id)
+    # Also attach wallet balance (same customer_id used in Stripe checkout)
+    wallet = _get_wallet(session_id)
+    result["wallet_balance_cents"] = wallet.get_balance()
+    result["wallet_balance_display"] = f"{wallet.get_balance() / 100:.2f} USD"
+    return result
+
+
+@app.get("/v1/mcp/session/wallet")
+def mcp_get_wallet(session_id: str = "default") -> Dict[str, object]:
+    """Return wallet balance for a given session_id/customer_id."""
+    wallet = _get_wallet(session_id)
+    balance = wallet.get_balance()
+    return {
+        "customer_id": session_id,
+        "balance_cents": balance,
+        "balance_display": f"{balance / 100:.2f} USD"
+    }
+
+
+@app.get("/v1/mcp/session/lookup")
+def mcp_lookup_by_email(request: Request, email: str = "") -> Dict[str, object]:
+    """Lookup wallet by email (for agents recovering context after a payment)."""
+    if not email:
+        raise HTTPException(status_code=400, detail="email parameter is required")
+    idx = getattr(request.app.state, "email_index", None)
+    if not idx:
+        raise HTTPException(status_code=500, detail="email_index not initialized")
+    customer_id = idx.lookup(email)
+    if not customer_id:
+        raise HTTPException(status_code=404, detail=f"No wallet found for email: {email}")
+    wallet = _get_wallet(customer_id)
+    balance = wallet.get_balance()
+    return {
+        "email": email,
+        "customer_id": customer_id,
+        "balance_cents": balance,
+        "balance_display": f"{balance / 100:.2f} USD"
+    }
+
+
+@app.post("/v1/mcp/session/call")
+def mcp_record_call(request: Request, req: McpCallRequest) -> Dict[str, object]:
+    ledger = getattr(request.app.state, "mcp_ledger", None)
+    if not ledger:
+        raise HTTPException(status_code=500, detail="mcp_ledger not initialized")
+
+    import urllib.parse
+    parsed = urllib.parse.urlparse(req.url)
+    origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else "unknown"
+
+    ok, result = ledger.record_call(
+        session_id=req.session_id,
+        url=req.url,
+        origin=origin,
+        method=req.method,
+        price_usd=req.price_usd,
+        max_budget=req.max_budget,
+    )
+    return {"success": ok, "result": result}
+
+
+# ---------------------------------------------------------------------------
+# Syndication endpoints
 # ---------------------------------------------------------------------------
 
 class CheckoutRequest(BaseModel):
-    customer_email: str
+    customer_email: Optional[str] = None
     amount_cents: int
-    currency: str = "eur"
+    currency: str = "usd"
     customer_id: Optional[str] = None
 
     @field_validator('amount_cents')
     @classmethod
     def validate_min_amount(cls, v):
         if v < 500:
-            raise ValueError('Minimum top-up is 5.00 EUR (500 cents).')
+            raise ValueError('Minimum top-up is $5.00 USD (500 cents).')
         return v
+
+
+@app.get("/v1/billing/checkout")
+def get_checkout_redirect(
+    customer_id: Optional[str] = None,
+    amount_cents: int = 1000,
+    currency: str = "usd",
+    customer_email: Optional[str] = None,
+):
+    """GET handler: directly redirects browser/operator to the Stripe Checkout page."""
+    from fastapi.responses import RedirectResponse
+    req = CheckoutRequest(
+        customer_id=customer_id,
+        amount_cents=amount_cents,
+        currency=currency,
+        customer_email=customer_email or None,
+    )
+    res = create_checkout(req)
+    return RedirectResponse(url=res["url"], status_code=302)
 
 
 class BillingSetupRequest(BaseModel):
@@ -271,6 +384,7 @@ async def stripe_webhook(request: Request) -> Dict[str, object]:
             or data.get("metadata", {}).get("customer_id")
             or data.get("customer", "")
         )
+        customer_email = data.get("customer_email") or data.get("customer_details", {}).get("email", "")
         if customer_id:
             wallet = _get_wallet(customer_id)
             amount = data.get("amount_total", 0)
@@ -283,6 +397,11 @@ async def stripe_webhook(request: Request) -> Dict[str, object]:
                 description="Stripe recharge",
                 stripe_session_id=session_id,
             )
+        # Persist email→customer_id mapping for gateway_lookup
+        if customer_email and customer_id:
+            idx = getattr(request.app.state, "email_index", None)
+            if idx:
+                idx.register_payment(customer_email, customer_id)
 
     return {"received": True, "type": event_type}
 
@@ -292,13 +411,25 @@ async def stripe_webhook(request: Request) -> Dict[str, object]:
 # ---------------------------------------------------------------------------
 
 @app.get("/billing/success")
-def billing_success() -> Dict[str, str]:
-    return {"status": "ok", "message": "Payment successful. Wallet will be credited shortly."}
+def billing_success():
+    """Return a user-friendly HTML page after successful Stripe payment."""
+    from fastapi.responses import HTMLResponse
+    html_path = os.path.join(os.path.dirname(__file__), "site", "success.html")
+    if os.path.exists(html_path):
+        with open(html_path, "r") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    return HTMLResponse(content="<h1>Payment successful</h1>", status_code=200)
 
 
 @app.get("/billing/cancel")
-def billing_cancel() -> Dict[str, str]:
-    return {"status": "cancelled", "message": "Payment cancelled. No charge was made."}
+def billing_cancel():
+    """Return a user-friendly HTML page when Stripe payment is cancelled."""
+    from fastapi.responses import HTMLResponse
+    html_path = os.path.join(os.path.dirname(__file__), "site", "cancel.html")
+    if os.path.exists(html_path):
+        with open(html_path, "r") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    return HTMLResponse(content="<h1>Payment cancelled</h1>", status_code=200)
 
 
 # ---------------------------------------------------------------------------
