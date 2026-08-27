@@ -1,67 +1,41 @@
-"""Discovery over the AgentCash catalog: search by intent, list an origin's
-endpoints. Thin wrappers over the CLI's `search` / `discover`."""
+"""Discovery over the tryx402 catalogue — thin client calling the public API.
+
+Queries https://tryx402.fly.dev/api/v1/tools for semantic search and provider discovery.
+Zero local files, zero database dependencies.
+"""
+
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
+import os
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, List
+
+DEFAULT_API_BASE = os.environ.get("TRYX402_API_BASE", "https://tryx402.fly.dev").rstrip("/")
 
 
-def _cmd(binary):
-    if binary:
-        return binary.split()
-    if shutil.which("agentcash"):
-        return ["agentcash"]
-    return ["npx", "agentcash@latest"]
-
-
-def _run_json(args):
-    proc = subprocess.run(args, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "command failed")
-    txt = proc.stdout.strip()
+def search(query: str, binary: Any = None, limit: int = 10) -> List[Dict[str, Any]]:
+    """Find endpoints by intent using the server-side TF-IDF index."""
+    q = urllib.parse.quote(query)
+    url = f"{DEFAULT_API_BASE}/api/v1/tools/search?query={q}&limit={limit}"
+    req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.1"})
     try:
-        return json.loads(txt)
-    except json.JSONDecodeError:
-        obj, _ = json.JSONDecoder().raw_decode(txt)
-        return obj
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("results", [])
+    except Exception:
+        return []
 
 
-def _find(obj, key):
-    stack = [obj]
-    while stack:
-        cur = stack.pop()
-        if isinstance(cur, dict):
-            if key in cur:
-                return cur[key]
-            stack.extend(cur.values())
-        elif isinstance(cur, list):
-            stack.extend(cur)
-    return None
-
-
-def search(query, binary=None, limit=10):
-    data = _run_json(_cmd(binary) + ["search", query, "--format", "json"])
-    results = _find(data, "results")
-    if isinstance(results, dict):
-        results = _find(results, "results") or []
-    rows = []
-    for r in (results or [])[:limit]:
-        if not isinstance(r, dict):
-            continue
-        og = r.get("origin")
-        origin = og.get("url", "") if isinstance(og, dict) else (og or "")
-        rows.append({"path": r.get("path"), "method": r.get("method", "POST"),
-                     "price": r.get("price"), "summary": r.get("summary", ""), "origin": origin})
-    return rows
-
-
-def discover(origin, binary=None):
-    data = _run_json(_cmd(binary) + ["discover", origin, "--format", "json"])
-    rows = []
-    for e in (_find(data, "endpoints") or []):
-        if not isinstance(e, dict):
-            continue
-        rows.append({"path": e.get("path"), "method": e.get("method", "POST"),
-                     "price": e.get("price"), "summary": e.get("summary", "")})
-    return rows
+def discover(origin: str) -> List[Dict[str, Any]]:
+    """Introspect an origin using the server-side catalog API."""
+    orig = urllib.parse.quote(origin)
+    url = f"{DEFAULT_API_BASE}/api/v1/tools/discover?origin={orig}"
+    req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.1"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("results", data.get("tools", data.get("endpoints", [])))
+    except Exception:
+        return []

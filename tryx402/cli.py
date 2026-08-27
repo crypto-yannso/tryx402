@@ -25,16 +25,18 @@ def _print_json(obj):
 
 def cmd_search(a):
     for e in catalog.search(a.query, binary=a.agentcash, limit=a.limit):
-        print(f"{str(e.get('price') or '?'):>12}  {e.get('method', 'POST'):5} "
-              f"{e.get('origin', '')}{e.get('path', '')}")
+        price = e.get("price_usd", e.get("price", "?"))
+        print(f"{str(price):>12}  {e.get('method', 'POST'):5} "
+              f"{e.get('origin', '')}{e.get('endpoint', e.get('path', ''))}")
         if e.get("summary"):
             print(f"              {e['summary'][:110]}")
 
 
 def cmd_discover(a):
     for e in catalog.discover(a.origin, binary=a.agentcash):
-        print(f"{str(e.get('price') or '?'):>12}  {e.get('method', 'POST'):5} "
-              f"{e.get('path', '')}  {e.get('summary', '')[:80]}")
+        price = e.get("price_usd", e.get("price", "?"))
+        print(f"{str(price):>12}  {e.get('method', 'POST'):5} "
+              f"{e.get('endpoint', e.get('path', ''))}  {e.get('summary', '')[:80]}")
 
 
 def cmd_call(a):

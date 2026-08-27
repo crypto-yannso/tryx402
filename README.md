@@ -63,19 +63,50 @@ gateway call https://stable-deepline.dev/api/email/validate \
   --body '{"email":"x@y.com"}' --price 0.03 --max-budget 0.10
 ```
 
-**MCP — the agent-native form** (like AgentCash's own MCP, zero dependencies):
+**MCP — two modes (pick the one you need):**
+
+### SDK MCP (pip install) — 6 tools, safe caller only
 
 ```json
 {
   "command": "python3",
-  "args": ["-m", "gateway.mcp_server"],
-  "env": { "GATEWAY_MAX_BUDGET_USD": "1.00" }
+  "args": ["-m", "tryx402.mcp_server"],
+  "env": { "TRYX402_MAX_BUDGET_USD": "1.00" }
 }
 ```
 
-The agent gets four tools — `gateway_search`, `gateway_discover`, `gateway_call`
-(budget-capped, idempotent), `gateway_spent` — sharing one session-wide budget
-and cost ledger across every call.
+6 tools: `gateway_search`, `gateway_discover`, `gateway_call`, `gateway_spent`,
+`gateway_plan`, `gateway_receipt`. Works directly with your x402/AgentCash
+crypto wallet — no hosted account needed.
+
+> **You will NOT see** `gateway_check_balance`, `gateway_recharge`,
+> `gateway_lookup`, or `gateway_proxy_call` from `pip install tryx402`.
+> This is deliberate, not a bug. These tools manage your **hosted account
+> credits** (funded via Stripe, separate from your crypto wallet). The SDK
+> MCP is a safe x402 caller; the hosted gateway handles the fiat credit
+> layer. For the full 10-tool MCP, see Option B below or connect to
+> `https://www.tryx402.app/api/mcp`.
+
+### Gateway MCP (clone repo) — 10 tools, hosted account management
+
+```json
+{
+  "mcpServers": {
+    "tryx402": {
+      "command": "python3",
+      "args": ["-m", "gateway.mcp_server"],
+      "env": {
+        "GATEWAY_MAX_BUDGET_USD": "1.00"
+      }
+    }
+  }
+}
+```
+
+All 6 SDK tools **plus** `gateway_session`, `gateway_check_balance`,
+`gateway_recharge`, `gateway_proxy_call`. No API key needed — anonymous
+session auth throughout. `check_balance` / `recharge` manage your
+**hosted account credits** (funded via Stripe in EUR/USD — not crypto).
 
 ## Layout
 

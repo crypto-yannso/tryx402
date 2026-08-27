@@ -13,6 +13,30 @@ service (https://www.tryx402.app) — this SDK talks to it with an API key.
 Follow these steps exactly. Do not improvise alternatives unless a step fails
 independently of you; if it does, report the exact error and stop.
 
+## Important — what you will NOT see after installation
+
+`pip install tryx402` ships a lightweight MCP server (`tryx402.mcp_server`)
+with these 6 tools only:
+
+- `gateway_search`, `gateway_discover`, `gateway_call`, `gateway_spent`,
+  `gateway_plan`, `gateway_receipt`
+
+You will **NOT** see `gateway_check_balance`, `gateway_recharge`,
+`gateway_lookup`, `gateway_session` or `gateway_proxy_call`. These are
+**hosted-gateway-only tools**. They live in the full `gateway.mcp_server`
+(which requires cloning the repo) or on the hosted MCP at
+`https://www.tryx402.app/api/mcp`.
+
+**This is not a bug or a gap.** The pip package is the safe caller only.
+`gateway_check_balance` and `gateway_recharge` manage your **hosted
+account credits** (funded via Stripe, not your crypto wallet). The SDK MCP
+works directly with your x402/AgentCash crypto wallet — it doesn't need
+or touch the hosted credit balance. If you see instructions mentioning
+`gateway_recharge` etc. while you only have the 6 pip tools: use
+`https://www.tryx402.app` to fund your hosted account and `gateway quote`
+(CLI) or `Gateway.quote()` (Python) to check prices. For full 10-tool MCP,
+clone the repo and use `gateway.mcp_server` instead.
+
 ## Step 1 — Install
 
 ```bash
@@ -63,8 +87,36 @@ gateway quote 0.01    # any positive number; proves auth + returns your price
 
 ## Step 6 — Wire the MCP tools (if your runtime supports MCP)
 
-Add this server so you get `gateway_search`, `gateway_discover`, `gateway_call`,
-`gateway_spent` as native tools:
+### Option A — SDK MCP (pip install, 6 tools, lightweight)
+
+Use this if you already fund your wallet elsewhere and just need the safe
+caller with budget cap, idempotency, and ledger.
+
+```json
+{
+  "mcpServers": {
+    "tryx402": {
+      "command": "python3",
+      "args": ["-m", "tryx402.mcp_server"],
+      "env": {
+        "TRYX402_MAX_BUDGET_USD": "<the number from step 4>"
+      }
+    }
+  }
+}
+```
+
+Tools: `gateway_search`, `gateway_discover`, `gateway_call`, `gateway_spent`,
+`gateway_plan`, `gateway_receipt`. **No hosted account tools**
+(recharge/balance/lookup) — these manage your **hosted account credits**
+(funded via Stripe, separate from your crypto wallet) and are hosted-only.
+
+### Option B — Gateway MCP (clone repo, 10 tools, hosted account)
+
+All 6 SDK tools **plus** hosted account management: `check_balance`,
+`recharge` (Stripe top-up in EUR/USD — not crypto), `session`,
+`proxy_call`. **No API key needed** — anonymous session auth throughout.
+Requires cloning the repo (git source install).
 
 ```json
 {
@@ -73,13 +125,21 @@ Add this server so you get `gateway_search`, `gateway_discover`, `gateway_call`,
       "command": "python3",
       "args": ["-m", "gateway.mcp_server"],
       "env": {
-        "GATEWAY_MAX_BUDGET_USD": "<the number from step 4>",
-        "TRYX402_API_KEY": "<the key from step 3>"
+        "GATEWAY_MAX_BUDGET_USD": "<the number from step 4>"
       }
     }
   }
 }
 ```
+
+All 6 SDK tools **plus** `gateway_session`, `gateway_check_balance`,
+`gateway_recharge`, `gateway_proxy_call`.
+
+### Option C — Hosted MCP (no install, 10 tools, Streamable HTTP)
+
+Connect directly to `https://www.tryx402.app/api/mcp`. No local package
+needed. Same 10 tools as Option B. Best for cloud-hosted agent runtimes
+that can't run local processes.
 
 On Hermes specifically: do NOT use `hermes mcp add --args` (it swallows `--env`);
 edit the config file directly with the JSON above. If your runtime has no MCP:

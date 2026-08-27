@@ -1,139 +1,238 @@
-"""Zero-dependency MCP server exposing the safe gateway as agent tools.
+"""MCP server for tryx402 — clean, pure HTTP proxy server.
 
-This is the most agent-native embedding — same idea as AgentCash's own MCP, but
-every call goes through the safe engine (hard budget cap, idempotency, ledger).
-No SDK: plain JSON-RPC 2.0 over newline-delimited stdio.
-
-Add it to an agent's MCP config as a simple command:
-
-    {
-      "command": "python3",
-      "args": ["-m", "gateway.mcp_server"],
-      "env": { "GATEWAY_MAX_BUDGET_USD": "1.00" }
-    }
-
-Tools: gateway_search, gateway_discover, gateway_call, gateway_spent.
-gateway_call SPENDS real USDC (budget-capped). A single Gateway instance lives
-for the whole session, so the budget and idempotency cache span all calls.
+Exposes the 11 tryx402 capabilities via standard MCP stdio JSON-RPC.
+All operations are safely forwarded to the hosted tryx402 API.
+Zero local secrets, zero private databases.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sys
+from typing import Any, Dict
 
 from .api import Gateway
 
-PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "tryx402", "version": "0.4.0"}
+_GW: Gateway | None = None
 
 
-def _budget():
-    v = os.environ.get("TRYX402_MAX_BUDGET_USD") or os.environ.get("GATEWAY_MAX_BUDGET_USD")
-    return float(v) if v else None
+def _get_gateway() -> Gateway:
+    global _GW
+    if _GW is None:
+        budget_str = os.environ.get("TRYX402_MAX_BUDGET_USD", "2.00")
+        try:
+            budget = float(budget_str)
+        except ValueError:
+            budget = 2.00
+        _GW = Gateway(max_budget_usd=budget)
+    return _GW
 
-
-_GW = Gateway(max_budget_usd=_budget())
 
 TOOLS = [
-    {"name": "gateway_search",
-     "description": "Find AgentCash/x402 endpoints across the whole catalogue by "
-                    "natural-language intent. Free (no payment).",
-     "inputSchema": {"type": "object",
-                     "properties": {"query": {"type": "string"},
-                                    "limit": {"type": "integer"}},
-                     "required": ["query"]}},
-    {"name": "gateway_discover",
-     "description": "List one origin's endpoints with prices. Free (no payment).",
-     "inputSchema": {"type": "object",
-                     "properties": {"origin": {"type": "string"}},
-                     "required": ["origin"]}},
-    {"name": "gateway_call",
-     "description": "Call a pay-per-use API endpoint safely: budget cap, idempotency, "
-                    "cost ledger. Billed in USD. Pass `price` (expected USD) "
-                    "so budget tracking works.",
-     "inputSchema": {"type": "object",
-                     "properties": {"url": {"type": "string"},
-                                    "body": {"type": "object"},
-                                    "method": {"type": "string"},
-                                    "price": {"type": "number"}},
-                     "required": ["url"]}},
-    {"name": "gateway_plan",
-     "description": "Price an entire multi-call workflow BEFORE spending. Free. "
-                    "Pass steps: [{url, body?, price?}]. Returns total, per-step "
-                    "costs, unknown-price flags, and whether it fits the budget.",
-     "inputSchema": {"type": "object",
-                     "properties": {"steps": {"type": "array",
-                                              "items": {"type": "object"}}},
-                     "required": ["steps"]}},
-    {"name": "gateway_receipt",
-     "description": "Sign a verifiable receipt (Ed25519) for a paid call. Free.",
-     "inputSchema": {"type": "object",
-                     "properties": {"endpoint": {"type": "string"},
-                                    "origin": {"type": "string"},
-                                    "price_usd": {"type": "number"},
-                                    "tx_hash": {"type": "string"}},
-                     "required": ["endpoint", "origin", "price_usd"]}},
-    {"name": "gateway_spent",
-     "description": "How much this session has spent (USD), total and by origin.",
-     "inputSchema": {"type": "object", "properties": {}}},
+    {
+        "name": "gateway_search",
+        "description": (
+            "Search the VERIFIED tryx402 tool catalogue for pay-per-use endpoints. "
+            "Supports natural language and intent search in French and English."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query or task description"},
+                "limit": {"type": "integer", "description": "Maximum number of tools to return (default: 10)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "gateway_discover",
+        "description": "Deep-dive into a single provider origin: lists every x402 endpoint with price and exact input schema.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "origin": {"type": "string", "description": "Provider origin URL (e.g. https://api.paywithlocus.com)"},
+            },
+            "required": ["origin"],
+        },
+    },
+    {
+        "name": "gateway_plan",
+        "description": "Estimate the TOTAL cost of a multi-step workflow BEFORE executing. Free and instantaneous.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "origin": {"type": "string"},
+                            "endpoint": {"type": "string"},
+                            "url": {"type": "string"},
+                            "price": {"type": "number"},
+                            "price_usd": {"type": "number"},
+                        },
+                    },
+                    "description": "List of steps to price",
+                },
+            },
+            "required": ["steps"],
+        },
+    },
+    {
+        "name": "gateway_check_balance",
+        "description": "Check the HOSTED FIAT account balance on tryx402. Returns balance in cents, formatted currency, and customer_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {"type": "string", "description": "Optional customer ID to inspect specific wallet"},
+            },
+        },
+    },
+    {
+        "name": "gateway_recharge",
+        "description": (
+            "Create a STRIPE CHECKOUT session to add funds to the hosted fiat account. "
+            "Returns checkout URL and customer_id."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "amount_cents": {"type": "integer", "description": "Amount to recharge in cents (e.g. 500 = $5.00 / 5.00 EUR)"},
+                "currency": {"type": "string", "description": "Currency code (default: eur, supports usd)", "default": "eur"},
+                "customer_email": {"type": "string", "description": "User's email for Stripe receipt and wallet binding"},
+            },
+            "required": ["amount_cents"],
+        },
+    },
+    {
+        "name": "gateway_lookup",
+        "description": "Recover a customer's wallet and balance using their email address.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email": {"type": "string", "description": "The user email used during Stripe Checkout"},
+            },
+            "required": ["email"],
+        },
+    },
+    {
+        "name": "gateway_proxy_call",
+        "description": (
+            "Execute an x402 endpoint through the tryx402 FIAT PROXY. Debits the hosted balance. "
+            "Backed by automatic 100% refund if provider fails."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Full URL to call"},
+                "body": {"type": "object", "description": "JSON request payload"},
+                "method": {"type": "string", "description": "HTTP method (POST, GET, etc.)", "default": "POST"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "gateway_call",
+        "description": "Execute a pay-per-use x402 API call through the hosted x402 rail.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Full target endpoint URL"},
+                "method": {"type": "string", "description": "HTTP method", "default": "POST"},
+                "body": {"type": "object", "description": "Request body JSON payload"},
+                "price": {"type": "number", "description": "Expected price in USD"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "gateway_spent",
+        "description": "Return the cumulative spend for the CURRENT session.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "gateway_session",
+        "description": "Mint a GOVERNED SUB-SESSION with its own hard spending cap.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cap_usd": {"type": "number", "description": "Hard spending ceiling in USD (default: 1.00)"},
+                "ttl_s": {"type": "integer", "description": "Session lifetime in seconds (default: 3600)"},
+            },
+        },
+    },
+    {
+        "name": "gateway_receipt",
+        "description": "Generate or verify a cryptographically signed Ed25519 receipt.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "endpoint": {"type": "string"},
+                "origin": {"type": "string"},
+                "price_usd": {"type": "number"},
+            },
+            "required": ["endpoint", "origin", "price_usd"],
+        },
+    },
 ]
 
 
-def _handle_tool(name, args):
-    if name == "gateway_search":
-        return json.dumps(_GW.search(args["query"], limit=int(args.get("limit", 10))),
-                          ensure_ascii=False, indent=2)
-    if name == "gateway_discover":
-        return json.dumps(_GW.discover(args["origin"]), ensure_ascii=False, indent=2)
-    if name == "gateway_call":
-        data = _GW.call(args["url"], body=args.get("body"),
-                        method=args.get("method", "POST"), price=args.get("price"))
-        return json.dumps({"spent_usd": _GW.spent_usd, "data": data},
-                          ensure_ascii=False, indent=2)
-    if name == "gateway_plan":
-        from .planner import estimate_plan
-        est = estimate_plan(args.get("steps") or [],
-                            spent_usd=_GW.spent_usd,
-                            max_budget_usd=_GW._client.max_budget_usd)
-        return json.dumps(est.to_dict(), ensure_ascii=False, indent=2)
-    if name == "gateway_receipt":
-        r = _GW.receipt(args["endpoint"], args["origin"],
-                        args["price_usd"], tx_hash=args.get("tx_hash"))
-        return json.dumps({"receipt": r, "verify_hint": "verify with the "
-                           "pubkey embedded in the receipt (offline)"},
-                          ensure_ascii=False, indent=2)
-    if name == "gateway_spent":
-        return json.dumps({"total_usd": _GW.spent_usd, "by_origin": _GW.spend_by_origin()},
-                          indent=2)
-    raise ValueError(f"unknown tool: {name}")
+def _handle_tool(name: str, args: Dict[str, Any]) -> str:
+    gw = _get_gateway()
+    try:
+        if name == "gateway_search":
+            q = args.get("query", "")
+            limit = int(args.get("limit", 10))
+            return json.dumps({"status": "ok", "query": q, "count": len(gw.search(q, limit)), "results": gw.search(q, limit)}, ensure_ascii=False)
+        elif name == "gateway_discover":
+            orig = args.get("origin", "")
+            eps = gw.discover(orig)
+            return json.dumps({"status": "ok", "origin": orig, "count": len(eps), "endpoints": eps}, ensure_ascii=False)
+        elif name == "gateway_plan":
+            steps = args.get("steps", [])
+            return json.dumps(gw.plan(steps), ensure_ascii=False)
+        elif name == "gateway_check_balance":
+            cid = args.get("customer_id")
+            return json.dumps(gw.check_balance(cid), ensure_ascii=False)
+        elif name == "gateway_recharge":
+            amt = int(args.get("amount_cents", 0))
+            curr = args.get("currency", "eur")
+            email = args.get("customer_email")
+            return json.dumps(gw.recharge(amt, curr, email), ensure_ascii=False)
+        elif name == "gateway_lookup":
+            em = args.get("email", "")
+            return json.dumps(gw.lookup_by_email(em) or {"status": "not_found", "message": "No account found"}, ensure_ascii=False)
+        elif name == "gateway_proxy_call":
+            u = args.get("url", "")
+            b = args.get("body")
+            m = args.get("method", "POST")
+            return json.dumps(gw.proxy_call(u, b, m), ensure_ascii=False)
+        elif name == "gateway_call":
+            u = args.get("url", "")
+            b = args.get("body")
+            m = args.get("method", "POST")
+            p = args.get("price")
+            return json.dumps(gw.call(u, b, m, p), ensure_ascii=False)
+        elif name == "gateway_spent":
+            return json.dumps(gw.spent(), ensure_ascii=False)
+        elif name == "gateway_session":
+            cap = float(args.get("cap_usd", 1.0))
+            ttl = int(args.get("ttl_s", 3600))
+            return json.dumps(gw.session(cap, ttl), ensure_ascii=False)
+        elif name == "gateway_receipt":
+            ep = args.get("endpoint", "")
+            orig = args.get("origin", "")
+            pu = float(args.get("price_usd", 0.0))
+            return json.dumps(gw.receipt(ep, orig, pu), ensure_ascii=False)
+        else:
+            return json.dumps({"error": f"Unknown tool: {name}"})
+    except Exception as e:
+        return json.dumps({"error": str(e), "status": "failed"})
 
 
-class _MethodNotFound(Exception):
-    pass
-
-
-def _dispatch(req):
-    method = req.get("method")
-    if method == "initialize":
-        params = req.get("params") or {}
-        return {"protocolVersion": params.get("protocolVersion", PROTOCOL_VERSION),
-                "capabilities": {"tools": {}}, "serverInfo": SERVER_INFO}
-    if method == "tools/list":
-        return {"tools": TOOLS}
-    if method == "tools/call":
-        p = req.get("params") or {}
-        try:
-            text = _handle_tool(p.get("name"), p.get("arguments") or {})
-            return {"content": [{"type": "text", "text": text}]}
-        except Exception as e:
-            return {"content": [{"type": "text", "text": f"error: {e}"}], "isError": True}
-    if method == "ping":
-        return {}
-    raise _MethodNotFound(method)
-
-
-def main():
+def main() -> None:
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -142,18 +241,36 @@ def main():
             req = json.loads(line)
         except json.JSONDecodeError:
             continue
-        rid = req.get("id")
-        if rid is None:
-            continue                      # a notification — no response
-        try:
-            resp = {"jsonrpc": "2.0", "id": rid, "result": _dispatch(req)}
-        except _MethodNotFound as e:
-            resp = {"jsonrpc": "2.0", "id": rid,
-                    "error": {"code": -32601, "message": f"method not found: {e}"}}
-        except Exception as e:            # noqa: BLE001
-            resp = {"jsonrpc": "2.0", "id": rid,
-                    "error": {"code": -32603, "message": str(e)}}
-        sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+
+        req_id = req.get("id")
+        method = req.get("method")
+        params = req.get("params", {})
+
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "tryx402", "version": "0.4.1"},
+                },
+            }
+        elif method == "tools/list":
+            resp = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": TOOLS}}
+        elif method == "tools/call":
+            t_name = params.get("name", "")
+            t_args = params.get("arguments", {})
+            res_str = _handle_tool(t_name, t_args)
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"content": [{"type": "text", "text": res_str}]},
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
         sys.stdout.flush()
 
 

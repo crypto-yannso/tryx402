@@ -3,9 +3,14 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .env
+.env.*
 dist/
 build/
 fly.toml
-dist/
-*.egg-info/
-build/
+Dockerfile
+
+# Proprietary server & business logic (lives in private tryx402-core)
+gateway/
+*.db
+live_test_results.json
+LIVE_STATUS_REPORT.md

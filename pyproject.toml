@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tryx402"
-version = "0.4.0"
+version = "0.4.1"
 description = "The OpenRouter for agent payments: budget router, idempotency, cost ledger, and multi-currency billing over x402."
 readme = "README.md"
 license = { text = "MIT" }
@@ -21,8 +21,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-native = ["httpx>=0.24"]
-server = ["fastapi", "uvicorn", "pydantic", "stripe", "httpx>=0.24", "x402[evm]>=2.20.0"]
+dev = ["pytest>=7.0.0"]
 
 [project.urls]
 Homepage = "https://www.tryx402.app"
@@ -31,4 +30,4 @@ Homepage = "https://www.tryx402.app"
 tryx402 = "tryx402.cli:main"
 
 [tool.setuptools]
-packages = ["tryx402", "gateway"]
+packages = ["tryx402"]
