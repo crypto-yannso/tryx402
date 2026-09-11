@@ -24,8 +24,10 @@ callers reconcile instead of blindly retrying (the $0.83 lesson).
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+from typing import Any, Mapping
 
 from .ledger import CostEvent, Ledger
 
@@ -54,30 +56,170 @@ def _origin(url: str) -> str:
     return f"{parts[0] if len(parts) == 2 else 'https'}://{host}"
 
 
-def price_from_402(body_bytes: bytes | None) -> float | None:
-    """Extract maxAmountRequired from a 402 body when possible.
-
-    Atomic-USDC heuristic per KEY: `maxAmountRequired` carries atomic units,
-    so >10_000 means atomic → divide by 1e6; smaller values are display USD.
-    Returns None when unparseable (unknown cost, never guessed).
-    """
-    if not body_bytes:
+def _json_bytes(payload: bytes | str | None) -> Any:
+    if not payload:
         return None
     try:
-        data = json.loads(body_bytes.decode())
+        if isinstance(payload, bytes):
+            payload = payload.decode()
+        return json.loads(payload)
     except Exception:
         return None
-    accepts = data.get("accepts") or []
-    if not accepts:
+
+
+def _header_value(headers: Mapping[str, Any] | None, name: str) -> str | None:
+    if not headers:
         return None
-    raw = accepts[0].get("maxAmountRequired")
-    if raw is None:
+    wanted = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() == wanted:
+            return value.decode() if isinstance(value, bytes) else str(value)
+    return None
+
+
+def _decode_challenge_header(value: str | None) -> Any:
+    if not value:
+        return None
+    direct = _json_bytes(value)
+    if direct is not None:
+        return direct
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        return _json_bytes(base64.urlsafe_b64decode(padded.encode()))
+    except Exception:
+        return None
+
+
+def _asset_decimals(requirement: Mapping[str, Any]) -> int | None:
+    containers = [
+        requirement,
+        requirement.get("extra"),
+        requirement.get("metadata"),
+        requirement.get("assetMetadata"),
+        requirement.get("asset") if isinstance(requirement.get("asset"), dict) else None,
+    ]
+    for container in containers:
+        if not isinstance(container, dict) or "decimals" not in container:
+            continue
+        try:
+            decimals = int(container["decimals"])
+        except (TypeError, ValueError):
+            continue
+        if 0 <= decimals <= 30:
+            return decimals
+    return None
+
+
+def _requirement_price(requirement: Mapping[str, Any]) -> float | None:
+    key = "amount" if requirement.get("amount") is not None else "maxAmountRequired"
+    raw = requirement.get(key)
+    if raw is None or isinstance(raw, bool):
         return None
     try:
-        val = float(raw)
+        value = float(raw)
     except (TypeError, ValueError):
         return None
-    return val / 1_000_000 if val > 10_000 else val
+    if value < 0:
+        return None
+
+    decimals = _asset_decimals(requirement)
+    if decimals is not None:
+        return value / (10 ** decimals)
+
+    # x402 v1 historically mixed display values and six-decimal stablecoin
+    # atomic units. Keep the old conservative compatibility heuristic only
+    # when the server omitted asset metadata.
+    if value > 10_000:
+        return value / 1_000_000
+    return value
+
+
+def _challenge_price(data: Any) -> float | None:
+    if not isinstance(data, dict):
+        return None
+    accepts = data.get("accepts") or data.get("paymentRequirements") or []
+    if isinstance(accepts, dict):
+        accepts = [accepts]
+    prices = [
+        price for price in (
+            _requirement_price(item) for item in accepts if isinstance(item, dict)
+        ) if price is not None
+    ]
+    # Multiple payment options should normally be equivalent. Taking the
+    # largest avoids understating a budget if a server publishes drifted ones.
+    return max(prices) if prices else None
+
+
+def _money_value(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float, str)):
+        try:
+            amount = float(value)
+            return amount if amount >= 0 else None
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(value, dict):
+        return None
+    currency = str(value.get("currency") or value.get("currencyCode") or "USD").upper()
+    if currency not in {"USD", "USDC", "USDT"}:
+        return None
+    if value.get("units") is not None:
+        try:
+            return float(value["units"]) + float(value.get("nanos", 0)) / 1_000_000_000
+        except (TypeError, ValueError):
+            return None
+    return _money_value(value.get("amount", value.get("value")))
+
+
+def _checkout_price(data: Any) -> float | None:
+    """Read display-denominated USD totals from common 402/UCP bodies."""
+    if not isinstance(data, dict):
+        return None
+    roots = [data]
+    for key in ("checkout", "checkoutSession", "checkout_session", "payment"):
+        if isinstance(data.get(key), dict):
+            roots.append(data[key])
+    for root in roots:
+        for key in ("total", "totalAmount", "total_amount", "totalPrice", "total_price"):
+            if key in root:
+                price = _money_value(root[key])
+                if price is not None:
+                    return price
+        totals = root.get("totals")
+        if isinstance(totals, list):
+            for total in totals:
+                if not isinstance(total, dict):
+                    continue
+                if str(total.get("type", "total")).lower() in {"total", "grand_total"}:
+                    price = _money_value(total.get("amount", total))
+                    if price is not None:
+                        return price
+    return None
+
+
+def price_from_402(
+    body_bytes: bytes | None,
+    headers: Mapping[str, Any] | None = None,
+) -> float | None:
+    """Extract a USD quote from common x402 v1/v2 and UCP 402 forms.
+
+    A ``payment-required`` base64 JSON header is authoritative when usable.
+    Body challenges are next, followed by display-denominated checkout totals.
+    Declared asset decimals are honored; malformed data remains unknown.
+    """
+    header = _header_value(headers, "payment-required")
+    if header is None:
+        header = _header_value(headers, "x-payment-required")
+    header_data = _decode_challenge_header(header)
+    price = _challenge_price(header_data)
+    if price is not None:
+        return price
+    body_data = _json_bytes(body_bytes)
+    price = _challenge_price(body_data)
+    if price is not None:
+        return price
+    return _checkout_price(body_data)
 
 
 def _event(endpoint: str, origin: str, price: float, paid: bool) -> CostEvent:

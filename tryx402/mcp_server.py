@@ -58,7 +58,11 @@ TOOLS = [
     },
     {
         "name": "gateway_plan",
-        "description": "Estimate the TOTAL cost of a multi-step workflow BEFORE executing. Free and instantaneous.",
+        "description": (
+            "Estimate the TOTAL cost of a multi-step workflow BEFORE payment. "
+            "Uses one unsigned live 402 preflight per non-explicit step, then "
+            "falls back to the catalog when no usable live quote is returned."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -70,6 +74,9 @@ TOOLS = [
                             "origin": {"type": "string"},
                             "endpoint": {"type": "string"},
                             "url": {"type": "string"},
+                            "method": {"type": "string"},
+                            "body": {"type": "object"},
+                            "parameters": {"type": "object"},
                             "price": {"type": "number"},
                             "price_usd": {"type": "number"},
                         },
@@ -253,7 +260,7 @@ def main() -> None:
                 "result": {
                     "protocolVersion": "2025-06-18",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "tryx402", "version": "0.4.1"},
+                    "serverInfo": {"name": "tryx402", "version": "0.4.2"},
                 },
             }
         elif method == "tools/list":

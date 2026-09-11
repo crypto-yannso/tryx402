@@ -14,8 +14,19 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+from .http_transport import price_from_402
+
 DEFAULT_API_BASE = os.environ.get("TRYX402_API_BASE", "https://tryx402.fly.dev").rstrip("/")
 DEFAULT_CUSTOMER_ID_FILE = os.path.expanduser("~/.tryx402_customer_id")
+QUOTE_TIMEOUT_S = 5.0
+QUOTE_BODY_LIMIT_BYTES = 256 * 1024
+
+
+class _NoQuoteRedirects(urllib.request.HTTPRedirectHandler):
+    """Keep quote preflights to exactly one request and one origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
 
 
 class Tryx402Error(RuntimeError):
@@ -66,7 +77,7 @@ class Gateway:
             qs = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
             if qs:
                 url = f"{url}?{qs}"
-        req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.2"})
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode("utf-8"))
@@ -82,7 +93,7 @@ class Gateway:
 
     def _http_post(self, path: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Any:
         url = f"{self.api_base}{path}"
-        req_headers = {"User-Agent": "tryx402-python/0.4.1", "Content-Type": "application/json"}
+        req_headers = {"User-Agent": "tryx402-python/0.4.2", "Content-Type": "application/json"}
         if headers:
             req_headers.update(headers)
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -112,14 +123,87 @@ class Gateway:
         res = self._http_get("/api/v1/tools/discover", {"origin": origin})
         return res.get("results", res.get("tools", res.get("endpoints", [])))
 
+    def _open_quote_request(self, request: urllib.request.Request):
+        opener = urllib.request.build_opener(_NoQuoteRedirects())
+        return opener.open(request, timeout=QUOTE_TIMEOUT_S)
+
+    def _live_quote(self, step: Dict[str, Any], url: str) -> tuple[Optional[float], str]:
+        """Make one unsigned, quote-only request; a parseable 402 is success."""
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None, "invalid_url"
+
+        method = str(step.get("method") or "POST").upper()
+        body = step.get("body")
+        parameters = step.get("parameters")
+        query = step.get("params", step.get("query"))
+        if method in {"GET", "HEAD"}:
+            if query is None:
+                query = parameters
+        elif body is None and parameters is not None:
+            body = parameters
+
+        if isinstance(query, dict):
+            encoded = urllib.parse.urlencode(
+                {key: value for key, value in query.items() if value is not None},
+                doseq=True,
+            )
+            if encoded:
+                separator = "&" if parsed.query else "?"
+                url = f"{url}{separator}{encoded}"
+
+        headers = {
+            "User-Agent": "tryx402-python/0.4.2",
+            "X-tryx402-preflight": "quote-only",
+            "Prefer": "safe, return=minimal",
+            "Accept": "application/json",
+        }
+        payload = None
+        if body is not None:
+            try:
+                payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            except (TypeError, ValueError):
+                return None, "invalid_request_body"
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=payload, headers=headers, method=method)
+
+        try:
+            with self._open_quote_request(request) as response:
+                # A successful response is not evidence of a price. It is never
+                # retried, and no payment/signature headers are ever constructed.
+                return None, "non_402_response_ignored"
+        except urllib.error.HTTPError as error:
+            body_bytes = error.read(QUOTE_BODY_LIMIT_BYTES)
+            if error.code != 402:
+                return None, "non_402_response_ignored"
+            price = price_from_402(body_bytes, error.headers)
+            if price is None:
+                return None, "live_402_unparseable"
+            return price, "live_402"
+        except (TimeoutError, urllib.error.URLError, OSError):
+            return None, "live_quote_unavailable"
+
     def plan(self, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Pre-calculate the total cost of a multi-step workflow before execution."""
-        catalog_tools = self._http_get("/api/v1/tools").get("tools", [])
+        """Quote a workflow without payment, preferring explicit then live prices.
+
+        Price precedence is: a valid caller-supplied ``price``/``price_usd``;
+        otherwise an authoritative unpaid 402 quote; otherwise the catalog;
+        otherwise unknown. Live preflight sends exactly one unsigned request per
+        non-explicit step and never follows redirects or retries a response.
+        """
+        try:
+            catalog_tools = self._http_get("/api/v1/tools").get("tools", [])
+        except Tryx402Error:
+            catalog_tools = []
         pricing_map = {}
         for t in catalog_tools:
             fu = t.get("full_url") or f"{t.get('origin', '').rstrip('/')}{t.get('endpoint', '')}"
-            pricing_map[fu] = float(t.get("price_usd", 0.0))
-            pricing_map[t.get("slug", "")] = float(t.get("price_usd", 0.0))
+            try:
+                catalog_price = float(t["price_usd"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            pricing_map[fu] = catalog_price
+            pricing_map[t.get("slug", "")] = catalog_price
 
         priced_steps = []
         total_usd = 0.0
@@ -127,18 +211,45 @@ class Gateway:
 
         for s in steps:
             url = s.get("url") or f"{s.get('origin', '').rstrip('/')}{s.get('endpoint', '')}"
-            price = s.get("price") or s.get("price_usd")
+            explicit = s.get("price") if s.get("price") is not None else s.get("price_usd")
+            price = None
+            source = "unknown"
+            quote_status = "not_requested_explicit"
+            if explicit is not None:
+                try:
+                    price = float(explicit)
+                    source = "explicit"
+                except (TypeError, ValueError):
+                    quote_status = "invalid_explicit_price"
             if price is None:
-                price = pricing_map.get(url)
+                live_price, quote_status = self._live_quote(s, url)
+                if live_price is not None:
+                    price = live_price
+                    source = "live_402"
+                elif url in pricing_map:
+                    price = pricing_map[url]
+                    source = "catalog"
             if price is None:
                 unknown_count += 1
-                priced_steps.append({"url": url, "known": False, "price_usd": None})
+                priced_steps.append({
+                    "url": url,
+                    "known": False,
+                    "price_usd": None,
+                    "price_source": "unknown",
+                    "quote_status": quote_status,
+                })
             else:
                 price_f = float(price)
                 total_usd += price_f
-                priced_steps.append({"url": url, "known": True, "price_usd": price_f})
+                priced_steps.append({
+                    "url": url,
+                    "known": True,
+                    "price_usd": price_f,
+                    "price_source": source,
+                    "quote_status": quote_status,
+                })
 
-        budget = self.max_budget_usd or 2.0
+        budget = self.max_budget_usd if self.max_budget_usd is not None else 2.0
         return {
             "status": "ok",
             "total_usd": round(total_usd, 4),

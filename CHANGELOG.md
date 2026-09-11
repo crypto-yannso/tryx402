@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2 — live pricing preflight
+
+- `Gateway.plan()` now makes a short, unsigned, single-request pricing
+  preflight using each step's method and inputs. It prefers explicit caller
+  prices, then live x402 v1/v2 or UCP 402 totals, with the static catalog only
+  as fallback. Step results expose `price_source` and a non-sensitive
+  `quote_status`; preflights never pay, retry, or follow redirects.
+
 ## 0.4.0 — x402 facade + trust layer (server)
 
 Everything a third-party x402 agent needs to pay tryx402-wrapped endpoints

@@ -19,7 +19,7 @@ def search(query: str, binary: Any = None, limit: int = 10) -> List[Dict[str, An
     """Find endpoints by intent using the server-side TF-IDF index."""
     q = urllib.parse.quote(query)
     url = f"{DEFAULT_API_BASE}/api/v1/tools/search?query={q}&limit={limit}"
-    req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.2"})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -32,7 +32,7 @@ def discover(origin: str) -> List[Dict[str, Any]]:
     """Introspect an origin using the server-side catalog API."""
     orig = urllib.parse.quote(origin)
     url = f"{DEFAULT_API_BASE}/api/v1/tools/discover?origin={orig}"
-    req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "tryx402-python/0.4.2"})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))

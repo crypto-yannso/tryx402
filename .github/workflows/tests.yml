@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: python3 -m pip install -e ".[dev]"
       - name: Run offline test suite (no spend, no network)
-        run: python3 gateway/tests/test_gateway.py
-        env:
-          PYTHONPATH: .
+        run: python3 -m pytest -q tryx402/tests
